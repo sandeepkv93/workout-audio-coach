@@ -21,6 +21,7 @@ from workout_audio_coach.config import (
     WorkoutConfig,
     WorkoutStep,
     default_cache_dir,
+    finite_float,
     non_negative_float,
     non_negative_int,
     parse_rest_warnings,
@@ -50,6 +51,9 @@ from workout_audio_coach.tts import (
     TTSFactory,
     TTSWriter,
     audio_segment_from_mp3_bytes,
+    clear_cache,
+    format_cache_stats,
+    get_cache_stats,
     phrase_cache_path,
     synthesize_phrase,
 )
@@ -211,6 +215,16 @@ def create_parser() -> argparse.ArgumentParser:
         help="Directory used to cache generated speech clips.",
     )
     parser.add_argument(
+        "--cache-stats",
+        action="store_true",
+        help="Print speech cache usage statistics and exit.",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Remove cached speech clips from --cache-dir and exit.",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Disable the on-disk speech cache for this run.",
@@ -293,7 +307,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--tts-backend",
         choices=SUPPORTED_TTS_BACKENDS,
         default="gtts",
-        help="Speech backend: gtts (online), espeak/say (offline OS), or tone (offline beeps).",
+        help="Speech backend: gtts, edge (neural), piper (offline neural), espeak, say, or tone.",
     )
     parser.add_argument(
         "--tts-tld",
@@ -308,12 +322,48 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tts-voice",
         default=None,
-        help="Voice name for local espeak or macOS say backends.",
+        help="Voice name (edge/espeak/say) or ONNX model path (piper).",
+    )
+    parser.add_argument(
+        "--tts-workers",
+        type=positive_int,
+        default=4,
+        help="Maximum concurrent workers used for TTS phrase synthesis (default: 4).",
     )
     parser.add_argument(
         "--beep-cues",
         action="store_true",
         help="Prepend synthesized audio tones before countdown, set, rest, and completion cues.",
+    )
+    parser.add_argument(
+        "--normalize",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Normalize speech and tone clips to a consistent loudness target (--target-dbfs).",
+    )
+    parser.add_argument(
+        "--target-dbfs",
+        type=finite_float,
+        default=-16.0,
+        help="Target RMS loudness in dBFS when --normalize is enabled (default: -16.0).",
+    )
+    parser.add_argument(
+        "--music",
+        type=Path,
+        default=None,
+        help="Background music audio file to loop/mix beneath the workout.",
+    )
+    parser.add_argument(
+        "--music-gain-db",
+        type=finite_float,
+        default=-6.0,
+        help="Base volume adjustment in dB for --music (default: -6.0).",
+    )
+    parser.add_argument(
+        "--duck-db",
+        type=finite_float,
+        default=-12.0,
+        help="Additional dB reduction applied to --music while the coach speaks (default: -12.0).",
     )
     parser.add_argument(
         "--tts-attempts",
@@ -504,6 +554,12 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         routine=routine,
         timestamps_file=timestamps_file,
         title=getattr(args, "title", None),
+        normalize_audio=bool(getattr(args, "normalize", False)),
+        target_dbfs=float(getattr(args, "target_dbfs", -16.0)),
+        music_file=getattr(args, "music", None),
+        music_gain_db=float(getattr(args, "music_gain_db", -6.0)),
+        duck_db=float(getattr(args, "duck_db", -12.0)),
+        tts_workers=int(getattr(args, "tts_workers", 4)),
     )
 
 
@@ -564,6 +620,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.list_presets:
         print(format_preset_list())
+        return
+    if args.clear_cache:
+        cleared = clear_cache(args.cache_dir)
+        print(f"Cleared {cleared.file_count} cached clips from {cleared.cache_dir}")
+        return
+    if args.cache_stats:
+        print(format_cache_stats(get_cache_stats(args.cache_dir)))
         return
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

@@ -15,10 +15,10 @@ DEFAULT_SET_START_GAP_SECONDS: float = 1.0
 DEFAULT_COUNTDOWN_GAP_SECONDS: float = 1.0
 SUPPORTED_OUTPUT_FORMATS: tuple[str, ...] = ("mp3", "wav", "ogg", "flac", "m4a")
 SUPPORTED_TIMING_MODES: tuple[str, ...] = ("gap", "cadence")
-SUPPORTED_TTS_BACKENDS: tuple[str, ...] = ("gtts", "espeak", "say", "tone")
+SUPPORTED_TTS_BACKENDS: tuple[str, ...] = ("gtts", "edge", "piper", "espeak", "say", "tone")
 
 TimingMode = Literal["gap", "cadence"]
-TTSBackendName = Literal["gtts", "espeak", "say", "tone"]
+TTSBackendName = Literal["gtts", "edge", "piper", "espeak", "say", "tone"]
 StepKind = Literal[
     "countdown",
     "set",
@@ -65,6 +65,12 @@ class WorkoutConfig:
     routine: WorkoutRoutine | None = None
     timestamps_file: Path | None = None
     title: str | None = None
+    normalize_audio: bool = False
+    target_dbfs: float = -16.0
+    music_file: Path | None = None
+    music_gain_db: float = -6.0
+    duck_db: float = -12.0
+    tts_workers: int = 4
 
 
 @dataclass(frozen=True)
@@ -87,6 +93,13 @@ def non_negative_int(value: str) -> int:
     parsed = int(value)
     if parsed < 0:
         raise argparse.ArgumentTypeError("value must be 0 or greater")
+    return parsed
+
+
+def finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise argparse.ArgumentTypeError("value must be a finite number")
     return parsed
 
 

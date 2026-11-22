@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -8,6 +9,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO, Protocol
@@ -17,6 +19,21 @@ from workout_audio_coach.pcm import PCMAudio
 from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
 
 LOGGER = logging.getLogger(__name__)
+
+CACHE_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".wav"})
+
+EDGE_DEFAULT_VOICES: dict[str, str] = {
+    "en": "en-US-GuyNeural",
+    "es": "es-ES-AlvaroNeural",
+    "fr": "fr-FR-HenriNeural",
+    "de": "de-DE-ConradNeural",
+    "it": "it-IT-DiegoNeural",
+    "pt": "pt-BR-AntonioNeural",
+    "hi": "hi-IN-MadhurNeural",
+    "ja": "ja-JP-KeitaNeural",
+    "ko": "ko-KR-InJoonNeural",
+    "zh": "zh-CN-YunxiNeural",
+}
 
 
 class TTSWriter(Protocol):
@@ -37,6 +54,13 @@ class TTSBackend(Protocol):
     def cache_namespace(self) -> str: ...
 
     def synthesize(self, phrase: str, language: str, *, kind: StepKind = "cue") -> bytes: ...
+
+
+@dataclass(frozen=True)
+class CacheStats:
+    cache_dir: Path
+    file_count: int
+    total_bytes: int
 
 
 AudioDecoder = Callable[[bytes], PCMAudio]
@@ -60,6 +84,35 @@ def phrase_cache_path(
     key = f"{namespace}\0{language}\0{phrase}" if namespace else f"{language}\0{phrase}"
     digest = hashlib.sha256(key.encode()).hexdigest()
     return cache_dir / f"{digest}.{extension}"
+
+
+def get_cache_stats(cache_dir: Path) -> CacheStats:
+    if not cache_dir.exists():
+        return CacheStats(cache_dir=cache_dir, file_count=0, total_bytes=0)
+    count = 0
+    total = 0
+    for entry in cache_dir.iterdir():
+        if entry.is_file() and entry.suffix.lower() in CACHE_EXTENSIONS:
+            count += 1
+            total += entry.stat().st_size
+    return CacheStats(cache_dir=cache_dir, file_count=count, total_bytes=total)
+
+
+def clear_cache(cache_dir: Path) -> CacheStats:
+    stats = get_cache_stats(cache_dir)
+    if cache_dir.exists():
+        for entry in cache_dir.iterdir():
+            if entry.is_file() and (
+                entry.suffix.lower() in CACHE_EXTENSIONS or entry.suffix.lower() == ".tmp"
+            ):
+                entry.unlink(missing_ok=True)
+    return stats
+
+
+def format_cache_stats(stats: CacheStats) -> str:
+    size_kb = stats.total_bytes / 1024.0
+    size_str = f"{size_kb / 1024.0:.2f} MB" if size_kb >= 1024.0 else f"{size_kb:.1f} KB"
+    return f"Cache directory: {stats.cache_dir}\nCached clips: {stats.file_count} ({size_str})"
 
 
 def _write_bytes_atomically(target: Path, data: bytes) -> None:
@@ -128,6 +181,113 @@ class GTTSBackend:
 
             gTTS(text=phrase, lang=language, tld=self.tld, slow=self.slow).write_to_fp(buffer)
         return buffer.getvalue()
+
+
+class EdgeTTSBackend:
+    """Neural TTS backend powered by optional `edge-tts` package or CLI."""
+
+    def __init__(self, *, voice: str | None = None, executable: str | None = None) -> None:
+        self.voice = voice
+        self.executable = executable
+
+    @property
+    def name(self) -> str:
+        return "edge"
+
+    @property
+    def file_extension(self) -> str:
+        return "mp3"
+
+    def resolve_voice(self, language: str) -> str:
+        if self.voice:
+            return self.voice
+        primary = language.strip().lower().replace("_", "-").split("-", 1)[0]
+        return EDGE_DEFAULT_VOICES.get(primary, EDGE_DEFAULT_VOICES["en"])
+
+    def cache_namespace(self) -> str:
+        return f"edge:voice={self.voice or 'auto'}"
+
+    def synthesize(self, phrase: str, language: str, *, kind: StepKind = "cue") -> bytes:
+        del kind
+        voice = self.resolve_voice(language)
+        if self.executable is None:
+            try:
+                import edge_tts
+
+                async def _generate() -> bytes:
+                    chunks: list[bytes] = []
+                    communicator = edge_tts.Communicate(phrase, voice)
+                    async for item in communicator.stream():
+                        if isinstance(item, dict) and item.get("type") == "audio":
+                            data = item.get("data")
+                            if isinstance(data, bytes):
+                                chunks.append(data)
+                    return b"".join(chunks)
+
+                return asyncio.run(_generate())
+            except ImportError:
+                pass
+
+        binary = self.executable or shutil.which("edge-tts")
+        if binary is None:
+            raise RuntimeError(
+                "edge backend requires the optional 'edge-tts' package or CLI. "
+                "Install it with 'uv add edge-tts' or 'pip install edge-tts'."
+            )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp3_path = Path(tmpdir) / "clip.mp3"
+            cmd = [binary, "--voice", voice, "--text", phrase, "--write-media", str(mp3_path)]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                stderr = result.stderr.strip() or f"exit code {result.returncode}"
+                raise RuntimeError(f"edge-tts synthesis failed: {stderr}")
+            return mp3_path.read_bytes()
+
+
+class PiperBackend:
+    """Offline neural TTS backend powered by local `piper` CLI and ONNX voice model."""
+
+    def __init__(self, *, model: str | None = None, executable: str | None = None) -> None:
+        self.model = model
+        self.executable = executable
+
+    @property
+    def name(self) -> str:
+        return "piper"
+
+    @property
+    def file_extension(self) -> str:
+        return "wav"
+
+    def cache_namespace(self) -> str:
+        return f"piper:model={self.model or ''}"
+
+    def synthesize(self, phrase: str, language: str, *, kind: StepKind = "cue") -> bytes:
+        del language, kind
+        binary = self.executable or shutil.which("piper")
+        if binary is None:
+            raise RuntimeError(
+                "piper backend requires the 'piper' CLI on PATH. "
+                "Install piper-tts (e.g. 'pip install piper-tts') and pass --tts-voice MODEL.onnx."
+            )
+        if not self.model:
+            raise RuntimeError(
+                "piper backend requires a voice model path via --tts-voice /path/to/model.onnx."
+            )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav_path = Path(tmpdir) / "clip.wav"
+            cmd = [binary, "--model", self.model, "--output_file", str(wav_path)]
+            result = subprocess.run(
+                cmd,
+                input=phrase + "\n",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                stderr = result.stderr.strip() or f"exit code {result.returncode}"
+                raise RuntimeError(f"piper synthesis failed: {stderr}")
+            return wav_path.read_bytes()
 
 
 class ToneBackend:
@@ -247,6 +407,10 @@ def create_tts_backend(
 ) -> TTSBackend:
     if backend == "gtts":
         return GTTSBackend(tld=tld, slow=slow, tts_factory=tts_factory)
+    if backend == "edge":
+        return EdgeTTSBackend(voice=voice)
+    if backend == "piper":
+        return PiperBackend(model=voice)
     if backend == "tone":
         return ToneBackend()
     if backend == "espeak":

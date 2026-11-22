@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
 from workout_audio_coach.config import StepKind, WorkoutConfig, WorkoutStep
-from workout_audio_coach.pcm import PCMAudio, concatenate_pcm, ensure_ffmpeg_available
+from workout_audio_coach.pcm import (
+    PCMAudio,
+    concatenate_pcm,
+    ensure_ffmpeg_available,
+    mix_background_music,
+)
 from workout_audio_coach.planner import build_workout_plan
 from workout_audio_coach.timeline import TimelineEntry, WorkoutTimeline, build_chapters
 from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
@@ -47,6 +53,12 @@ def _uses_custom_backend_settings(config: WorkoutConfig) -> bool:
     )
 
 
+def _maybe_normalize(segment: PCMAudio, config: WorkoutConfig) -> PCMAudio:
+    if config.normalize_audio:
+        return segment.normalize_dbfs(config.target_dbfs)
+    return segment
+
+
 def build_workout_audio_with_timeline(
     config: WorkoutConfig,
     *,
@@ -77,13 +89,16 @@ def build_workout_audio_with_timeline(
             )
         )
         by_text = {
-            phrase: segment_loader(
-                phrase,
-                config.language,
-                config.cache_dir,
-                use_cache=config.use_cache,
-                attempts=config.tts_attempts,
-                initial_backoff_seconds=config.tts_initial_backoff,
+            phrase: _maybe_normalize(
+                segment_loader(
+                    phrase,
+                    config.language,
+                    config.cache_dir,
+                    use_cache=config.use_cache,
+                    attempts=config.tts_attempts,
+                    initial_backoff_seconds=config.tts_initial_backoff,
+                ),
+                config,
             )
             for phrase in unique_texts
         }
@@ -101,8 +116,9 @@ def build_workout_audio_with_timeline(
                 seen_keys.add(key)
                 cache_keys.append(key)
 
-        loaded_by_key = {
-            (phrase, kind): load_or_generate_segment(
+        def _fetch_one(item: tuple[str, StepKind]) -> tuple[tuple[str, StepKind], PCMAudio]:
+            phrase, kind = item
+            seg = load_or_generate_segment(
                 phrase,
                 config.language,
                 config.cache_dir,
@@ -112,8 +128,19 @@ def build_workout_audio_with_timeline(
                 backend=resolved_backend,
                 kind=kind,
             )
-            for phrase, kind in cache_keys
-        }
+            return item, _maybe_normalize(seg, config)
+
+        loaded_by_key: dict[tuple[str, StepKind], PCMAudio] = {}
+        worker_count = max(1, min(config.tts_workers, len(cache_keys))) if cache_keys else 1
+        if worker_count > 1:
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                for key, seg in pool.map(_fetch_one, cache_keys):
+                    loaded_by_key[key] = seg
+        else:
+            for item in cache_keys:
+                key, seg = _fetch_one(item)
+                loaded_by_key[key] = seg
+
         for step in resolved_plan:
             if step.spoken_text is not None:
                 lookup_kind: StepKind = step.kind if resolved_backend.name == "tone" else "cue"
@@ -124,6 +151,7 @@ def build_workout_audio_with_timeline(
     beep_cache: dict[StepKind, PCMAudio] = {}
     parts: list[PCMAudio] = []
     entries: list[TimelineEntry] = []
+    speech_ranges_ms: list[tuple[int, int]] = []
     cursor_ms = 0
 
     for index, step in enumerate(resolved_plan, start=1):
@@ -131,7 +159,10 @@ def build_workout_audio_with_timeline(
         spoken_ms = 0
         if config.beep_cues and resolved_backend.name != "tone" and step.kind in BEEP_TRIGGER_KINDS:
             if step.kind not in beep_cache:
-                beep_cache[step.kind] = wav_bytes_to_segment(cue_tone_wav_bytes(step.kind))
+                beep_cache[step.kind] = _maybe_normalize(
+                    wav_bytes_to_segment(cue_tone_wav_bytes(step.kind)),
+                    config,
+                )
             beep_seg = beep_cache[step.kind]
             if len(beep_seg) > 0:
                 parts.append(beep_seg)
@@ -141,6 +172,9 @@ def build_workout_audio_with_timeline(
             segment = rendered_phrases[(step.spoken_text, step.kind)]
             parts.append(segment)
             spoken_ms += len(segment)
+
+        if spoken_ms > 0:
+            speech_ranges_ms.append((step_start_ms, step_start_ms + spoken_ms))
 
         if step.target_interval is not None and step.target_interval > 0:
             duration_ms = max(0, round(step.target_interval * 1000) - spoken_ms)
@@ -165,6 +199,16 @@ def build_workout_audio_with_timeline(
         )
 
     combined = concatenate_segments(parts)
+    if config.music_file is not None and combined.frame_count > 0:
+        music = PCMAudio.from_file(config.music_file)
+        combined = mix_background_music(
+            combined,
+            music,
+            speech_ranges_ms=speech_ranges_ms,
+            music_gain_db=config.music_gain_db,
+            duck_db=config.duck_db,
+        )
+
     timeline = WorkoutTimeline(
         entries=tuple(entries),
         chapters=build_chapters(entries),
