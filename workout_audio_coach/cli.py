@@ -6,7 +6,6 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from workout_audio_coach import audio as _audio
 from workout_audio_coach import tts as _tts
@@ -30,6 +29,7 @@ from workout_audio_coach.config import (
     resolve_output_format,
 )
 from workout_audio_coach.localization import parse_phrase_override
+from workout_audio_coach.pcm import PCMAudio
 from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
@@ -54,9 +54,6 @@ from workout_audio_coach.tts import (
     synthesize_phrase,
 )
 
-if TYPE_CHECKING:
-    from pydub import AudioSegment
-
 LOGGER = logging.getLogger(__name__)
 
 __all__ = [
@@ -66,6 +63,7 @@ __all__ = [
     "SUPPORTED_OUTPUT_FORMATS",
     "SUPPORTED_TIMING_MODES",
     "SUPPORTED_TTS_BACKENDS",
+    "PCMAudio",
     "TTSFactory",
     "TTSWriter",
     "WorkoutConfig",
@@ -103,7 +101,7 @@ def load_or_generate_segment(
     initial_backoff_seconds: float = 1.0,
     tts_factory: TTSFactory | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
-) -> AudioSegment:
+) -> PCMAudio:
     return _tts.load_or_generate_segment(
         phrase,
         language,
@@ -121,7 +119,7 @@ def build_workout_audio(
     config: WorkoutConfig,
     *,
     plan: Sequence[WorkoutStep] | None = None,
-) -> AudioSegment:
+) -> PCMAudio:
     return _audio.build_workout_audio(
         config,
         plan=plan,

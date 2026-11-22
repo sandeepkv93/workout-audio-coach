@@ -20,6 +20,7 @@ from workout_audio_coach.config import (
     resolve_output_format,
 )
 from workout_audio_coach.localization import PhrasePack, get_phrase_pack
+from workout_audio_coach.pcm import PCMAudio, concatenate_pcm, mix_background_music
 from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
@@ -62,6 +63,7 @@ __all__ = [
     "ExerciseSpec",
     "GTTSBackend",
     "MacOSSayBackend",
+    "PCMAudio",
     "PhrasePack",
     "TTSBackend",
     "TTSBackendName",
@@ -79,6 +81,7 @@ __all__ = [
     "build_workout_audio",
     "build_workout_audio_with_timeline",
     "build_workout_plan",
+    "concatenate_pcm",
     "create_combined_audio",
     "create_parser",
     "create_tts_backend",
@@ -88,5 +91,6 @@ __all__ = [
     "get_phrase_pack",
     "get_preset_routine",
     "load_routine_file",
+    "mix_background_music",
     "resolve_output_format",
 ]

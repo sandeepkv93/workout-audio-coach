@@ -9,9 +9,8 @@ from pathlib import Path
 from typing import BinaryIO
 from unittest.mock import patch
 
-from pydub import AudioSegment
-
-from workout_audio_coach import audio, cli, config, planner, tts
+from workout_audio_coach import audio, cli, config, pcm, planner, tts
+from workout_audio_coach.pcm import PCMAudio as AudioSegment
 
 
 class _GoodTTS:
@@ -174,10 +173,10 @@ class AudioAndCLITests(unittest.TestCase):
 
     def test_ensure_ffmpeg_available_raises_helpful_error(self) -> None:
         with (
-            patch("workout_audio_coach.tts.shutil.which", return_value=None),
+            patch("workout_audio_coach.pcm.shutil.which", return_value=None),
             self.assertRaisesRegex(RuntimeError, "ffmpeg is required"),
         ):
-            tts.ensure_ffmpeg_available()
+            pcm.ensure_ffmpeg_available()
 
     def test_main_preview_does_not_import_pydub_or_gtts(self) -> None:
         code = (

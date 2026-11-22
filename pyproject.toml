@@ -6,9 +6,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
-    "audioop-lts>=0.2.1; python_version >= '3.13'",
     "gtts>=2.5.4",
-    "pydub>=0.25.1",
 ]
 
 [dependency-groups]
@@ -42,5 +40,5 @@ warn_unreachable = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["gtts", "gtts.*", "pydub", "pydub.*"]
+module = ["gtts", "gtts.*", "edge_tts", "edge_tts.*"]
 ignore_missing_imports = true

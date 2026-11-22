@@ -6,9 +6,8 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from pydub import AudioSegment
-
 from workout_audio_coach import audio, cli, config, tones, tts
+from workout_audio_coach.pcm import PCMAudio as AudioSegment
 
 
 class ToneSynthesizerTests(unittest.TestCase):

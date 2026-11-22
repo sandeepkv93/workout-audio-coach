@@ -10,13 +10,11 @@ import time
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, Protocol
+from typing import BinaryIO, Protocol
 
 from workout_audio_coach.config import StepKind, TTSBackendName
+from workout_audio_coach.pcm import PCMAudio
 from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
-
-if TYPE_CHECKING:
-    from pydub import AudioSegment
 
 LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +39,7 @@ class TTSBackend(Protocol):
     def synthesize(self, phrase: str, language: str, *, kind: StepKind = "cue") -> bytes: ...
 
 
-AudioDecoder = Callable[[bytes], "AudioSegment"]
+AudioDecoder = Callable[[bytes], PCMAudio]
 
 
 def default_tts_factory(*, text: str, lang: str) -> TTSWriter:
@@ -49,15 +47,6 @@ def default_tts_factory(*, text: str, lang: str) -> TTSWriter:
 
     writer: TTSWriter = gTTS(text=text, lang=lang)
     return writer
-
-
-def ensure_ffmpeg_available() -> None:
-    if shutil.which("ffmpeg") is None and shutil.which("avconv") is None:
-        raise RuntimeError(
-            "ffmpeg is required to decode or export compressed audio formats, "
-            "but neither 'ffmpeg' nor 'avconv' was found on PATH. "
-            "Install ffmpeg (e.g. 'brew install ffmpeg' or 'sudo apt-get install ffmpeg')."
-        )
 
 
 def phrase_cache_path(
@@ -92,14 +81,11 @@ def _write_bytes_atomically(target: Path, data: bytes) -> None:
         raise
 
 
-def audio_segment_from_mp3_bytes(audio_bytes: bytes) -> AudioSegment:
-    ensure_ffmpeg_available()
-    from pydub import AudioSegment
-
-    return AudioSegment.from_file(BytesIO(audio_bytes), format="mp3")
+def audio_segment_from_mp3_bytes(audio_bytes: bytes) -> PCMAudio:
+    return PCMAudio.from_compressed_bytes(audio_bytes, "mp3")
 
 
-def decode_audio_bytes(audio_bytes: bytes, file_extension: str) -> AudioSegment:
+def decode_audio_bytes(audio_bytes: bytes, file_extension: str) -> PCMAudio:
     if file_extension == "wav":
         return wav_bytes_to_segment(audio_bytes)
     return audio_segment_from_mp3_bytes(audio_bytes)
@@ -327,7 +313,7 @@ def load_or_generate_segment(
     audio_decoder: AudioDecoder | None = None,
     backend: TTSBackend | None = None,
     kind: StepKind = "cue",
-) -> AudioSegment:
+) -> PCMAudio:
     resolved_backend: TTSBackend = (
         backend
         if backend is not None
@@ -346,7 +332,7 @@ def load_or_generate_segment(
         extension=extension,
     )
 
-    def _decode(data: bytes) -> AudioSegment:
+    def _decode(data: bytes) -> PCMAudio:
         if audio_decoder is not None:
             return audio_decoder(data)
         return decode_audio_bytes(data, extension)

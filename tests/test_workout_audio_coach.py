@@ -5,9 +5,8 @@ from pathlib import Path
 from typing import BinaryIO
 from unittest.mock import MagicMock, patch
 
-from pydub import AudioSegment
-
 import workout_audio_coach.cli as src
+from workout_audio_coach.pcm import PCMAudio as AudioSegment
 
 
 class FakeTTS:

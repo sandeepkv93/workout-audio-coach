@@ -2,21 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from workout_audio_coach.config import StepKind, WorkoutConfig, WorkoutStep
+from workout_audio_coach.pcm import PCMAudio, concatenate_pcm, ensure_ffmpeg_available
 from workout_audio_coach.planner import build_workout_plan
 from workout_audio_coach.timeline import TimelineEntry, WorkoutTimeline, build_chapters
 from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
 from workout_audio_coach.tts import (
     TTSBackend,
     create_tts_backend,
-    ensure_ffmpeg_available,
     load_or_generate_segment,
 )
-
-if TYPE_CHECKING:
-    from pydub import AudioSegment
 
 BEEP_TRIGGER_KINDS: frozenset[StepKind] = frozenset(
     {"countdown", "set", "exercise", "rest", "complete"}
@@ -33,43 +30,12 @@ class SegmentLoader(Protocol):
         use_cache: bool = True,
         attempts: int = 3,
         initial_backoff_seconds: float = 1.0,
-    ) -> AudioSegment: ...
+    ) -> PCMAudio: ...
 
 
-def concatenate_segments(segments: Sequence[AudioSegment]) -> AudioSegment:
-    """Concatenate AudioSegments in O(N) time by normalizing and joining raw PCM buffers."""
-    from pydub import AudioSegment
-
-    if not segments:
-        return AudioSegment.empty()
-
-    reference = next((seg for seg in segments if len(seg) > 0), None)
-    if reference is None:
-        return AudioSegment.empty()
-
-    frame_rate: int = reference.frame_rate
-    channels: int = reference.channels
-    sample_width: int = reference.sample_width
-
-    raw_chunks: list[bytes] = []
-    for segment in segments:
-        if len(segment) == 0:
-            continue
-        normalized = segment
-        if normalized.frame_rate != frame_rate:
-            normalized = normalized.set_frame_rate(frame_rate)
-        if normalized.channels != channels:
-            normalized = normalized.set_channels(channels)
-        if normalized.sample_width != sample_width:
-            normalized = normalized.set_sample_width(sample_width)
-        raw_chunks.append(normalized.raw_data)
-
-    return AudioSegment(
-        data=b"".join(raw_chunks),
-        sample_width=sample_width,
-        frame_rate=frame_rate,
-        channels=channels,
-    )
+def concatenate_segments(segments: Sequence[PCMAudio]) -> PCMAudio:
+    """Concatenate PCMAudio segments in O(N) time by normalizing and joining raw PCM buffers."""
+    return concatenate_pcm(segments)
 
 
 def _uses_custom_backend_settings(config: WorkoutConfig) -> bool:
@@ -87,9 +53,7 @@ def build_workout_audio_with_timeline(
     plan: Sequence[WorkoutStep] | None = None,
     segment_loader: SegmentLoader | None = None,
     backend: TTSBackend | None = None,
-) -> tuple[AudioSegment, WorkoutTimeline]:
-    from pydub import AudioSegment
-
+) -> tuple[PCMAudio, WorkoutTimeline]:
     resolved_plan = list(plan) if plan is not None else build_workout_plan(config)
     use_explicit_loader = (
         segment_loader is not None and backend is None and not _uses_custom_backend_settings(config)
@@ -105,7 +69,7 @@ def build_workout_audio_with_timeline(
         )
     )
 
-    rendered_phrases: dict[tuple[str, StepKind], AudioSegment] = {}
+    rendered_phrases: dict[tuple[str, StepKind], PCMAudio] = {}
     if use_explicit_loader and segment_loader is not None:
         unique_texts = list(
             dict.fromkeys(
@@ -157,8 +121,8 @@ def build_workout_audio_with_timeline(
                     (step.spoken_text, lookup_kind)
                 ]
 
-    beep_cache: dict[StepKind, AudioSegment] = {}
-    parts: list[AudioSegment] = []
+    beep_cache: dict[StepKind, PCMAudio] = {}
+    parts: list[PCMAudio] = []
     entries: list[TimelineEntry] = []
     cursor_ms = 0
 
@@ -186,7 +150,7 @@ def build_workout_audio_with_timeline(
             duration_ms = 0
 
         if duration_ms > 0:
-            parts.append(AudioSegment.silent(duration=duration_ms))
+            parts.append(PCMAudio.silent(duration=duration_ms))
 
         cursor_ms += spoken_ms + duration_ms
         entries.append(
@@ -216,7 +180,7 @@ def build_workout_audio(
     plan: Sequence[WorkoutStep] | None = None,
     segment_loader: SegmentLoader | None = None,
     backend: TTSBackend | None = None,
-) -> AudioSegment:
+) -> PCMAudio:
     combined, _ = build_workout_audio_with_timeline(
         config,
         plan=plan,
@@ -244,7 +208,7 @@ def build_audio_metadata_tags(config: WorkoutConfig) -> dict[str, str]:
 
 
 def export_workout_audio(
-    audio: AudioSegment,
+    audio: PCMAudio,
     output_file: Path,
     output_format: str,
     *,
@@ -253,12 +217,8 @@ def export_workout_audio(
     if output_format != "wav":
         ensure_ffmpeg_available()
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    export_format = "ipod" if output_format == "m4a" else output_format
     if tags and output_format != "wav":
-        exported = audio.export(output_file, format=export_format, tags=dict(tags))
+        audio.export(output_file, format=output_format, tags=dict(tags))
     else:
-        exported = audio.export(output_file, format=export_format)
-    close_fn = getattr(exported, "close", None)
-    if callable(close_fn):
-        close_fn()
+        audio.export(output_file, format=output_format)
     return output_file

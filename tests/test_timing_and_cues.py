@@ -3,9 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from pydub import AudioSegment
-
 from workout_audio_coach import audio, cli, config, planner
+from workout_audio_coach.pcm import PCMAudio as AudioSegment
 
 
 def _make_config(

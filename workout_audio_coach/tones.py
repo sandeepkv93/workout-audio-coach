@@ -5,15 +5,15 @@ import struct
 import wave
 from collections.abc import Sequence
 from io import BytesIO
-from typing import TYPE_CHECKING
 
 from workout_audio_coach.config import StepKind
-
-if TYPE_CHECKING:
-    from pydub import AudioSegment
-
-DEFAULT_SAMPLE_RATE: int = 24000
-MAX_INT16: int = 32767
+from workout_audio_coach.pcm import (
+    DEFAULT_SAMPLE_RATE as DEFAULT_SAMPLE_RATE,
+)
+from workout_audio_coach.pcm import (
+    MAX_INT16,
+    PCMAudio,
+)
 
 CUE_PATTERNS: dict[StepKind, tuple[tuple[float, float], ...]] = {
     "countdown": ((880.0, 0.09),),
@@ -81,7 +81,5 @@ def cue_tone_wav_bytes(kind: StepKind, *, sample_rate: int = DEFAULT_SAMPLE_RATE
     return synthesize_tone_wav(pattern, sample_rate=sample_rate)
 
 
-def wav_bytes_to_segment(wav_bytes: bytes) -> AudioSegment:
-    from pydub import AudioSegment
-
-    return AudioSegment.from_wav(BytesIO(wav_bytes))
+def wav_bytes_to_segment(wav_bytes: bytes) -> PCMAudio:
+    return PCMAudio.from_wav_bytes(wav_bytes)
