@@ -47,12 +47,13 @@ def format_workout_plan(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
         "",
     ]
 
+    index_width = max(2, len(str(len(plan))))
     for index, step in enumerate(plan, start=1):
         label = step.spoken_text or "[silence]"
         if step.gap_after > 0:
-            lines.append(f"{index:02d}. {label} [gap {step.gap_after:g}s]")
+            lines.append(f"{index:0{index_width}d}. {label} [gap {step.gap_after:g}s]")
         else:
-            lines.append(f"{index:02d}. {label}")
+            lines.append(f"{index:0{index_width}d}. {label}")
 
     return "\n".join(lines)
 

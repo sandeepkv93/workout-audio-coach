@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-
-from gtts import gTTS
-from pydub import AudioSegment
+from typing import TYPE_CHECKING
 
 from workout_audio_coach import audio as _audio
 from workout_audio_coach import tts as _tts
@@ -37,6 +36,9 @@ from workout_audio_coach.tts import (
     phrase_cache_path,
     synthesize_phrase,
 )
+
+if TYPE_CHECKING:
+    from pydub import AudioSegment
 
 LOGGER = logging.getLogger(__name__)
 
@@ -78,7 +80,7 @@ def load_or_generate_segment(
     use_cache: bool = True,
     attempts: int = 3,
     initial_backoff_seconds: float = 1.0,
-    tts_factory: TTSFactory = gTTS,
+    tts_factory: TTSFactory | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> AudioSegment:
     return _tts.load_or_generate_segment(
@@ -250,6 +252,7 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
         LOGGER.info("Preview-only run completed without audio export.")
         return None
 
+    output_format = config.output_format or "mp3"
     LOGGER.info(
         "Generating workout audio: %s sets x %s reps to %s",
         config.sets,
@@ -257,8 +260,7 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
         config.output_file,
     )
     combined_audio = build_workout_audio(config, plan=plan)
-    config.output_file.parent.mkdir(parents=True, exist_ok=True)
-    combined_audio.export(config.output_file, format=config.output_format)
+    _audio.export_workout_audio(combined_audio, config.output_file, output_format)
     LOGGER.info("Audio file created: %s", config.output_file)
     return config.output_file
 
@@ -274,3 +276,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         create_combined_audio(args)
     except ValueError as exc:
         parser.error(str(exc))
+    except (RuntimeError, OSError) as exc:
+        LOGGER.error("%s", exc)
+        sys.exit(1)
