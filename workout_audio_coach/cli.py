@@ -15,11 +15,14 @@ from workout_audio_coach.config import (
     DEFAULT_COUNTDOWN_GAP_SECONDS,
     DEFAULT_SET_START_GAP_SECONDS,
     SUPPORTED_OUTPUT_FORMATS,
+    SUPPORTED_TIMING_MODES,
+    TimingMode,
     WorkoutConfig,
     WorkoutStep,
     default_cache_dir,
     non_negative_float,
     non_negative_int,
+    parse_rest_warnings,
     positive_float,
     positive_int,
     resolve_output_format,
@@ -181,10 +184,43 @@ def create_parser() -> argparse.ArgumentParser:
         help="Countdown seconds spoken before the first set. Use 0 to disable.",
     )
     parser.add_argument(
+        "--countdown-gap",
+        type=non_negative_float,
+        default=DEFAULT_COUNTDOWN_GAP_SECONDS,
+        help="Pause in seconds between countdown cues.",
+    )
+    parser.add_argument(
+        "--countdown-end-gap",
+        type=non_negative_float,
+        default=0.0,
+        help="Pause in seconds after the final countdown number before Set 1.",
+    )
+    parser.add_argument(
+        "--timing-mode",
+        choices=SUPPORTED_TIMING_MODES,
+        default="gap",
+        help="'gap' inserts full silence after speech; 'cadence' keeps fixed intervals.",
+    )
+    parser.add_argument(
         "--announce-rest",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Speak a rest cue before each set gap.",
+    )
+    parser.add_argument(
+        "--rest-warnings",
+        default="",
+        help="Comma-separated seconds remaining to announce during rest (e.g. '10,3,2,1').",
+    )
+    parser.add_argument(
+        "--announce-halfway",
+        action="store_true",
+        help="Speak a halfway cue mid-set (for sets with 4+ reps).",
+    )
+    parser.add_argument(
+        "--announce-last-set",
+        action="store_true",
+        help="Speak a last-set cue at the start of the final set (for 2+ sets).",
     )
     parser.add_argument(
         "--set-start-gap",
@@ -233,6 +269,9 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
 
     raw_phrases: Sequence[str] = getattr(args, "phrase", None) or ()
     phrase_overrides = tuple(parse_phrase_override(item) for item in raw_phrases)
+    raw_warnings: str = getattr(args, "rest_warnings", "") or ""
+    rest_warnings = parse_rest_warnings(raw_warnings)
+    timing_mode: TimingMode = getattr(args, "timing_mode", "gap")
 
     return WorkoutConfig(
         reps=args.reps,
@@ -252,6 +291,12 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         tts_attempts=args.tts_attempts,
         tts_initial_backoff=args.tts_backoff,
         phrase_overrides=phrase_overrides,
+        timing_mode=timing_mode,
+        countdown_gap=getattr(args, "countdown_gap", DEFAULT_COUNTDOWN_GAP_SECONDS),
+        countdown_end_gap=getattr(args, "countdown_end_gap", 0.0),
+        rest_warnings=rest_warnings,
+        announce_halfway=bool(getattr(args, "announce_halfway", False)),
+        announce_last_set=bool(getattr(args, "announce_last_set", False)),
     )
 
 

@@ -4,12 +4,26 @@ import argparse
 import math
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 DEFAULT_SET_START_GAP_SECONDS: float = 1.0
 DEFAULT_COUNTDOWN_GAP_SECONDS: float = 1.0
 SUPPORTED_OUTPUT_FORMATS: tuple[str, ...] = ("mp3", "wav", "ogg", "flac", "m4a")
+SUPPORTED_TIMING_MODES: tuple[str, ...] = ("gap", "cadence")
+
+TimingMode = Literal["gap", "cadence"]
+StepKind = Literal[
+    "countdown",
+    "set",
+    "rep",
+    "rest",
+    "cue",
+    "exercise",
+    "complete",
+    "silence",
+]
 
 
 @dataclass(frozen=True)
@@ -31,12 +45,21 @@ class WorkoutConfig:
     tts_attempts: int
     tts_initial_backoff: float
     phrase_overrides: tuple[tuple[str, str], ...] = ()
+    timing_mode: TimingMode = "gap"
+    countdown_gap: float = DEFAULT_COUNTDOWN_GAP_SECONDS
+    countdown_end_gap: float = 0.0
+    rest_warnings: tuple[int, ...] = ()
+    announce_halfway: bool = False
+    announce_last_set: bool = False
 
 
 @dataclass(frozen=True)
 class WorkoutStep:
     spoken_text: str | None
     gap_after: float = 0.0
+    target_interval: float | None = None
+    kind: StepKind = field(default="cue", compare=False)
+    section: str | None = field(default=None, compare=False)
 
 
 def positive_int(value: str) -> int:
@@ -65,6 +88,21 @@ def non_negative_float(value: str) -> float:
     if not math.isfinite(parsed) or parsed < 0:
         raise argparse.ArgumentTypeError("value must be a finite number 0 or greater")
     return parsed
+
+
+def parse_rest_warnings(raw: str) -> tuple[int, ...]:
+    if not raw.strip():
+        return ()
+    values: set[int] = set()
+    for token in raw.split(","):
+        stripped = token.strip()
+        if not stripped:
+            continue
+        parsed = int(stripped)
+        if parsed <= 0:
+            raise ValueError("rest warning timestamps must be positive integers")
+        values.add(parsed)
+    return tuple(sorted(values, reverse=True))
 
 
 def default_cache_dir() -> Path:

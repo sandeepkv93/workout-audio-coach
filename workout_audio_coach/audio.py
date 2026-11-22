@@ -87,12 +87,21 @@ def build_workout_audio(
 
     parts: list[AudioSegment] = []
     for step in resolved_plan:
+        spoken_ms = 0
         if step.spoken_text is not None:
-            parts.append(rendered_phrases[step.spoken_text])
-        if step.gap_after > 0:
+            segment = rendered_phrases[step.spoken_text]
+            parts.append(segment)
+            spoken_ms = len(segment)
+
+        if step.target_interval is not None and step.target_interval > 0:
+            duration_ms = max(0, round(step.target_interval * 1000) - spoken_ms)
+        elif step.gap_after > 0:
             duration_ms = round(step.gap_after * 1000)
-            if duration_ms > 0:
-                parts.append(AudioSegment.silent(duration=duration_ms))
+        else:
+            duration_ms = 0
+
+        if duration_ms > 0:
+            parts.append(AudioSegment.silent(duration=duration_ms))
 
     return concatenate_segments(parts)
 
