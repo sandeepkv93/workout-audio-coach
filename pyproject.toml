@@ -1,6 +1,6 @@
 [project]
 name = "workout-audio-coach"
-version = "0.2.0"
+version = "0.3.0"
 description = "Generate guided workout audio files with previewable sets, reps, and rest cues."
 readme = "README.md"
 license = { file = "LICENSE" }
