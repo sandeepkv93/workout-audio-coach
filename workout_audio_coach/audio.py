@@ -255,7 +255,10 @@ def export_workout_audio(
     output_file.parent.mkdir(parents=True, exist_ok=True)
     export_format = "ipod" if output_format == "m4a" else output_format
     if tags and output_format != "wav":
-        audio.export(output_file, format=export_format, tags=dict(tags))
+        exported = audio.export(output_file, format=export_format, tags=dict(tags))
     else:
-        audio.export(output_file, format=export_format)
+        exported = audio.export(output_file, format=export_format)
+    close_fn = getattr(exported, "close", None)
+    if callable(close_fn):
+        close_fn()
     return output_file
