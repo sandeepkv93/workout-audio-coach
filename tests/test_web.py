@@ -32,6 +32,8 @@ class InteractiveWebPlayerTests(unittest.TestCase):
             self.assertEqual(payload["title"], "Tabata 4-Minute Interval")
             self.assertGreater(len(payload["steps"]), 20)
             self.assertGreater(len(payload["chapters"]), 5)
+            preset_ids = [preset["id"] for preset in payload["presets"]]
+            self.assertEqual(preset_ids, ["tabata", "emom", "hiit", "strength"])
 
     def test_render_workout_html_escapes_script_injection(self) -> None:
         parser = cli.create_parser()

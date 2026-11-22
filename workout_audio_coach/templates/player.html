@@ -30,10 +30,29 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
   h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
   .subtitle { color: var(--muted); font-size: 0.9rem; }
+  .preset-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .preset-label { color: var(--muted); font-size: 0.82rem; font-weight: 600; margin-right: 4px; }
+  .preset-btn {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .preset-btn.active { background: rgba(56, 189, 248, 0.2); border-color: var(--accent); color: var(--accent); }
   .tabs {
     display: inline-flex;
     background: var(--panel);
@@ -81,7 +100,7 @@
     padding: 16px;
     text-align: center;
   }
-  .cue-now { font-size: 1.65rem; font-weight: 800; line-height: 1.15; }
+  .cue-now { font-size: 1.55rem; font-weight: 800; line-height: 1.15; }
   .cue-timer { font-size: 1.1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
   .pill {
     display: inline-block;
@@ -109,9 +128,9 @@
   .toggles {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: 14px;
     align-items: center;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     color: var(--muted);
   }
   .chapters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -172,6 +191,13 @@
     margin-bottom: 10px;
   }
   .ex-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  footer {
+    margin-top: 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
 </style>
 </head>
 <body>
@@ -186,6 +212,8 @@
       <button class="tab-btn" id="tab-builder" type="button">Routine Builder</button>
     </div>
   </header>
+
+  <div class="preset-bar" id="preset-bar"></div>
 
   <section id="view-player">
     <div class="panel player-grid">
@@ -218,7 +246,9 @@
       </div>
     </div>
     <div class="panel">
-      <div class="subtitle" style="margin-bottom: 8px;">Workout Steps (click any step to jump)</div>
+      <div class="subtitle" style="margin-bottom: 8px;">
+        Workout Steps (click any step to jump · Shortcuts: Space Play/Pause · N Skip · R Reset)
+      </div>
       <div class="step-list" id="step-list"></div>
     </div>
   </section>
@@ -241,9 +271,16 @@
         <button class="btn" id="btn-add-ex" type="button">+ Add Exercise</button>
         <button class="btn accent" id="btn-apply" type="button">Load into Player</button>
         <button class="btn" id="btn-download" type="button">Download Routine JSON</button>
+        <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;">
+          Import JSON<input id="btn-import" type="file" accept=".json,application/json" style="display:none;" />
+        </label>
       </div>
     </div>
   </section>
+
+  <footer>
+    Powered by <a href="https://github.com/sandeepkv93/workout-audio-coach" target="_blank" rel="noopener">Workout Audio Coach</a>
+  </footer>
 </div>
 
 <script id="workout-data" type="application/json">__WORKOUT_DATA_JSON__</script>
@@ -255,6 +292,7 @@
     chapters: data.chapters,
     title: data.title,
     language: data.language || "en",
+    activePreset: null,
     idx: 0,
     remaining: 0,
     running: false,
@@ -262,10 +300,11 @@
     lastTick: 0,
     audioCtx: null,
   };
-  const builderExercises = (data.exercises || []).map((e) => ({ ...e }));
+  let builderExercises = (data.exercises || []).map((e) => ({ ...e }));
 
   const elTitle = document.getElementById("app-title");
   const elSummary = document.getElementById("app-summary");
+  const elPresetBar = document.getElementById("preset-bar");
   const elCueNow = document.getElementById("cue-now");
   const elCueTimer = document.getElementById("cue-timer");
   const elSection = document.getElementById("section-pill");
@@ -313,6 +352,43 @@
       u.rate = parseFloat(optRate.value) || 1.0;
       window.speechSynthesis.speak(u);
     } catch (_) {}
+  }
+
+  function loadPreset(preset) {
+    stop();
+    state.activePreset = preset.id;
+    state.title = preset.title;
+    state.steps = preset.steps;
+    state.chapters = preset.chapters;
+    state.idx = 0;
+    state.remaining = state.steps[0]?.duration_seconds || 0;
+    builderExercises = (preset.exercises || []).map((e) => ({ ...e }));
+    document.getElementById("b-name").value = preset.title;
+    document.getElementById("b-countdown").value = String(preset.countdown ?? 3);
+    document.getElementById("b-warnings").value = (preset.rest_warnings || []).join(",");
+    document.getElementById("b-timing").value = preset.timing_mode || "gap";
+    renderPresets();
+    renderBuilder();
+    renderAll();
+  }
+
+  function renderPresets() {
+    const presets = data.presets || [];
+    if (!presets.length) { elPresetBar.classList.add("hidden"); return; }
+    elPresetBar.innerHTML = "";
+    const lbl = document.createElement("span");
+    lbl.className = "preset-label";
+    lbl.textContent = "Presets:";
+    elPresetBar.appendChild(lbl);
+    presets.forEach((preset) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const isActive = state.activePreset === preset.id || (!state.activePreset && state.title === preset.title);
+      btn.className = "preset-btn" + (isActive ? " active" : "");
+      btn.textContent = `${preset.id.toUpperCase()} (${preset.formatted_duration})`;
+      btn.onclick = () => loadPreset(preset);
+      elPresetBar.appendChild(btn);
+    });
   }
 
   function renderAll() {
@@ -417,16 +493,25 @@
     state.timerId = null;
   }
 
-  btnPlay.onclick = () => (state.running ? stop() : start());
-  document.getElementById("btn-skip").onclick = () => {
-    if (state.idx + 1 < state.steps.length) jumpTo(state.idx + 1);
-  };
-  document.getElementById("btn-reset").onclick = () => {
+  function reset() {
     stop();
     state.idx = 0;
     state.remaining = state.steps[0]?.duration_seconds || 0;
     renderAll();
+  }
+
+  btnPlay.onclick = () => (state.running ? stop() : start());
+  document.getElementById("btn-skip").onclick = () => {
+    if (state.idx + 1 < state.steps.length) jumpTo(state.idx + 1);
   };
+  document.getElementById("btn-reset").onclick = reset;
+
+  document.addEventListener("keydown", (ev) => {
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+    if (ev.code === "Space") { ev.preventDefault(); state.running ? stop() : start(); }
+    else if (ev.key.toLowerCase() === "n" && state.idx + 1 < state.steps.length) jumpTo(state.idx + 1);
+    else if (ev.key.toLowerCase() === "r") reset();
+  });
 
   const tabPlayer = document.getElementById("tab-player");
   const tabBuilder = document.getElementById("tab-builder");
@@ -559,11 +644,13 @@
   };
   document.getElementById("btn-apply").onclick = () => {
     stop();
+    state.activePreset = null;
     const built = compileStepsFromBuilder();
     state.title = built.title;
     state.steps = built.steps;
     state.idx = 0;
     state.remaining = state.steps[0]?.duration_seconds || 0;
+    renderPresets();
     tabPlayer.click();
     renderAll();
   };
@@ -576,8 +663,31 @@
     a.click();
     URL.revokeObjectURL(a.href);
   };
+  document.getElementById("btn-import").onchange = (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    file.text().then((txt) => {
+      const parsed = JSON.parse(txt);
+      if (!Array.isArray(parsed.exercises)) return;
+      document.getElementById("b-name").value = parsed.name || "Imported Routine";
+      document.getElementById("b-countdown").value = String(parsed.countdown ?? 3);
+      document.getElementById("b-warnings").value = (parsed.rest_warnings || []).join(",");
+      document.getElementById("b-timing").value = parsed.timing_mode || "gap";
+      builderExercises = parsed.exercises.map((ex) => ({
+        name: ex.name || "Exercise",
+        mode: ex.duration ? "duration" : "reps",
+        sets: ex.sets || (Array.isArray(ex.reps) ? ex.reps.length : 1),
+        reps: Array.isArray(ex.reps) ? ex.reps[0] : (ex.reps || 10),
+        duration: ex.duration || 30,
+        rep_gap: ex.rep_gap ?? 1.0,
+        set_gap: ex.set_gap ?? 30,
+      }));
+      renderBuilder();
+    }).catch(() => {});
+  };
 
   state.remaining = state.steps[0]?.duration_seconds || 0;
+  renderPresets();
   renderAll();
   renderBuilder();
 })();

@@ -1,8 +1,11 @@
 # Workout Audio Coach
 
 [![CI](https://github.com/sandeepkv93/workout-audio-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/sandeepkv93/workout-audio-coach/actions/workflows/ci.yml)
+[![Live Web App](https://img.shields.io/badge/web%20app-GitHub%20Pages-38bdf8.svg)](https://sandeepkv93.github.io/workout-audio-coach/)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+> **Try it in your browser:** [Workout Audio Coach Web Player & Routine Builder](https://sandeepkv93.github.io/workout-audio-coach/)
 
 `workout-audio-coach` generates guided workout audio, live terminal coaching sessions, and self-contained interactive HTML5 workout players for sets/reps workouts, timed intervals, tempo lifting, and structured multi-exercise circuits.
 
