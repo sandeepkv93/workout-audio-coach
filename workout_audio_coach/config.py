@@ -6,7 +6,10 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from workout_audio_coach.routines import WorkoutRoutine
 
 DEFAULT_SET_START_GAP_SECONDS: float = 1.0
 DEFAULT_COUNTDOWN_GAP_SECONDS: float = 1.0
@@ -58,6 +61,8 @@ class WorkoutConfig:
     tts_slow: bool = False
     tts_voice: str | None = None
     beep_cues: bool = False
+    duration: float | None = None
+    routine: WorkoutRoutine | None = None
 
 
 @dataclass(frozen=True)

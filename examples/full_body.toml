@@ -1,0 +1,28 @@
+name = "Full Body Strength & Core"
+countdown = 3
+exercise_gap = 45
+timing_mode = "gap"
+announce_rest = true
+announce_halfway = true
+announce_last_set = true
+rest_warnings = [10, 3, 2, 1]
+
+[[exercises]]
+name = "Push-ups"
+reps = [12, 10, 8]
+rep_gap = 1.5
+set_gap = 30
+
+[[exercises]]
+name = "Bodyweight Squats"
+sets = 3
+reps = 15
+rep_gap = 1.25
+set_gap = 30
+
+[[exercises]]
+name = "Plank"
+sets = 3
+duration = 45
+set_gap = 20
+set_start_gap = 1.0

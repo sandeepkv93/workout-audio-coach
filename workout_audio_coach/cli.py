@@ -35,6 +35,13 @@ from workout_audio_coach.planner import (
     format_workout_plan,
     maybe_write_script_preview,
 )
+from workout_audio_coach.routines import (
+    PRESET_NAMES,
+    WorkoutRoutine,
+    format_preset_list,
+    get_preset_routine,
+    load_routine_file,
+)
 from workout_audio_coach.tts import (
     TTSFactory,
     TTSWriter,
@@ -51,10 +58,14 @@ LOGGER = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_COUNTDOWN_GAP_SECONDS",
     "DEFAULT_SET_START_GAP_SECONDS",
+    "PRESET_NAMES",
     "SUPPORTED_OUTPUT_FORMATS",
+    "SUPPORTED_TIMING_MODES",
+    "SUPPORTED_TTS_BACKENDS",
     "TTSFactory",
     "TTSWriter",
     "WorkoutConfig",
+    "WorkoutRoutine",
     "WorkoutStep",
     "__version__",
     "audio_segment_from_mp3_bytes",
@@ -117,23 +128,46 @@ def build_workout_audio(
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate or preview a guided workout audio file.")
     parser.add_argument(
+        "--routine",
+        type=Path,
+        default=None,
+        help="Path to a structured TOML or JSON multi-exercise workout routine file.",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=PRESET_NAMES,
+        default=None,
+        help="Use a built-in workout preset instead of manual set/rep arguments.",
+    )
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        help="List available built-in workout presets and exit.",
+    )
+    parser.add_argument(
         "--reps",
         type=positive_int,
-        required=True,
-        help="The number of reps in each set.",
+        default=None,
+        help="The number of reps in each set (for rep-based workouts).",
+    )
+    parser.add_argument(
+        "--duration",
+        type=positive_float,
+        default=None,
+        help="Work duration in seconds for each round (for timed interval workouts).",
     )
     parser.add_argument(
         "--sets",
         type=positive_int,
-        required=True,
-        help="The number of sets.",
+        default=None,
+        help="The number of sets or rounds.",
     )
     parser.add_argument(
         "--rep-gap",
         "--rep_gap",
         dest="rep_gap",
         type=non_negative_float,
-        required=True,
+        default=None,
         help="The gap between reps in seconds.",
     )
     parser.add_argument(
@@ -141,8 +175,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--set_gap",
         dest="set_gap",
         type=non_negative_float,
-        required=True,
-        help="The gap between sets in seconds.",
+        default=None,
+        help="The gap between sets/rounds in seconds.",
     )
     parser.add_argument(
         "--output-file",
@@ -158,7 +192,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--language",
-        default="en",
+        default=None,
         help="Language code for speech synthesis and localized cues (e.g. en, es, fr, de).",
     )
     parser.add_argument(
@@ -182,8 +216,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--countdown",
         type=non_negative_int,
-        default=3,
-        help="Countdown seconds spoken before the first set. Use 0 to disable.",
+        default=None,
+        help="Countdown seconds spoken before the first set. Use 0 to disable (default: 3).",
     )
     parser.add_argument(
         "--countdown-gap",
@@ -200,29 +234,31 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timing-mode",
         choices=SUPPORTED_TIMING_MODES,
-        default="gap",
+        default=None,
         help="'gap' inserts full silence after speech; 'cadence' keeps fixed intervals.",
     )
     parser.add_argument(
         "--announce-rest",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Speak a rest cue before each set gap.",
+        default=None,
+        help="Speak a rest cue before each set gap (default: enabled).",
     )
     parser.add_argument(
         "--rest-warnings",
-        default="",
+        default=None,
         help="Comma-separated seconds remaining to announce during rest (e.g. '10,3,2,1').",
     )
     parser.add_argument(
         "--announce-halfway",
-        action="store_true",
-        help="Speak a halfway cue mid-set (for sets with 4+ reps).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Speak a halfway cue mid-set or mid-interval.",
     )
     parser.add_argument(
         "--announce-last-set",
-        action="store_true",
-        help="Speak a last-set cue at the start of the final set (for 2+ sets).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Speak a last-set cue at the start of the final set.",
     )
     parser.add_argument(
         "--set-start-gap",
@@ -291,46 +327,160 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_routine(args: argparse.Namespace) -> WorkoutRoutine | None:
+    routine_path: Path | None = getattr(args, "routine", None)
+    preset_name: str | None = getattr(args, "preset", None)
+    if routine_path is not None and preset_name is not None:
+        raise ValueError("cannot specify both --routine and --preset")
+    if routine_path is not None:
+        return load_routine_file(routine_path)
+    if preset_name is not None:
+        return get_preset_routine(preset_name)
+    return None
+
+
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
     if args.output_file is None and not args.preview and args.script_file is None:
         raise ValueError("either --output-file or one of --preview/--script-file is required")
 
+    routine = _resolve_routine(args)
+    duration: float | None = getattr(args, "duration", None)
+
+    reps: int = 0
+    sets: int = 0
+    rep_gap: float = 0.0
+    set_gap: float = 0.0
+
+    if routine is not None:
+        sets = sum(ex.total_sets() for ex in routine.exercises)
+    elif duration is not None:
+        if args.reps is not None:
+            raise ValueError("cannot specify both --duration and --reps")
+        if args.sets is None:
+            raise ValueError("--sets is required when using --duration")
+        if args.set_gap is None:
+            raise ValueError("--set-gap is required when using --duration")
+        sets = args.sets
+        set_gap = args.set_gap
+    else:
+        missing = [
+            flag
+            for flag, value in (
+                ("--reps", args.reps),
+                ("--sets", args.sets),
+                ("--rep-gap", args.rep_gap),
+                ("--set-gap", args.set_gap),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ValueError(
+                f"the following arguments are required unless --routine, --preset, "
+                f"or --duration is used: {', '.join(missing)}"
+            )
+        reps = args.reps
+        sets = args.sets
+        rep_gap = args.rep_gap
+        set_gap = args.set_gap
+
     raw_phrases: Sequence[str] = getattr(args, "phrase", None) or ()
-    phrase_overrides = tuple(parse_phrase_override(item) for item in raw_phrases)
-    raw_warnings: str = getattr(args, "rest_warnings", "") or ""
-    rest_warnings = parse_rest_warnings(raw_warnings)
-    timing_mode: TimingMode = getattr(args, "timing_mode", "gap")
+    cli_phrase_overrides = tuple(parse_phrase_override(item) for item in raw_phrases)
+    merged_phrases: dict[str, str] = {}
+    if routine is not None:
+        merged_phrases.update(routine.phrase_overrides)
+    merged_phrases.update(cli_phrase_overrides)
+
+    language: str = (
+        args.language
+        if args.language is not None
+        else (routine.language if routine is not None and routine.language is not None else "en")
+    )
+    countdown: int = (
+        args.countdown
+        if args.countdown is not None
+        else (routine.countdown if routine is not None and routine.countdown is not None else 3)
+    )
+    announce_rest: bool = (
+        args.announce_rest
+        if args.announce_rest is not None
+        else (
+            routine.announce_rest
+            if routine is not None and routine.announce_rest is not None
+            else True
+        )
+    )
+    timing_mode_arg: TimingMode | None = getattr(args, "timing_mode", None)
+    timing_mode: TimingMode = (
+        timing_mode_arg
+        if timing_mode_arg is not None
+        else (
+            routine.timing_mode
+            if routine is not None and routine.timing_mode is not None
+            else "gap"
+        )
+    )
+    raw_warnings: str | None = getattr(args, "rest_warnings", None)
+    if raw_warnings is not None:
+        rest_warnings = parse_rest_warnings(raw_warnings)
+    elif routine is not None and routine.rest_warnings is not None:
+        rest_warnings = routine.rest_warnings
+    else:
+        rest_warnings = ()
+
+    announce_halfway_arg: bool | None = getattr(args, "announce_halfway", None)
+    announce_halfway = (
+        announce_halfway_arg
+        if announce_halfway_arg is not None
+        else (
+            routine.announce_halfway
+            if routine is not None and routine.announce_halfway is not None
+            else False
+        )
+    )
+    announce_last_set_arg: bool | None = getattr(args, "announce_last_set", None)
+    announce_last_set = (
+        announce_last_set_arg
+        if announce_last_set_arg is not None
+        else (
+            routine.announce_last_set
+            if routine is not None and routine.announce_last_set is not None
+            else False
+        )
+    )
+
     tts_backend: TTSBackendName = getattr(args, "tts_backend", "gtts")
 
     return WorkoutConfig(
-        reps=args.reps,
-        sets=args.sets,
-        rep_gap=args.rep_gap,
-        set_gap=args.set_gap,
+        reps=reps,
+        sets=sets,
+        rep_gap=rep_gap,
+        set_gap=set_gap,
         output_file=args.output_file,
         output_format=resolve_output_format(args.output_file, args.format),
-        language=args.language,
+        language=language,
         cache_dir=args.cache_dir,
         use_cache=not args.no_cache,
-        countdown=args.countdown,
-        announce_rest=args.announce_rest,
+        countdown=countdown,
+        announce_rest=announce_rest,
         set_start_gap=args.set_start_gap,
         preview=args.preview,
         script_file=args.script_file,
         tts_attempts=args.tts_attempts,
         tts_initial_backoff=args.tts_backoff,
-        phrase_overrides=phrase_overrides,
+        phrase_overrides=tuple(merged_phrases.items()),
         timing_mode=timing_mode,
         countdown_gap=getattr(args, "countdown_gap", DEFAULT_COUNTDOWN_GAP_SECONDS),
         countdown_end_gap=getattr(args, "countdown_end_gap", 0.0),
         rest_warnings=rest_warnings,
-        announce_halfway=bool(getattr(args, "announce_halfway", False)),
-        announce_last_set=bool(getattr(args, "announce_last_set", False)),
+        announce_halfway=announce_halfway,
+        announce_last_set=announce_last_set,
         tts_backend=tts_backend,
         tts_tld=str(getattr(args, "tts_tld", "com")),
         tts_slow=bool(getattr(args, "tts_slow", False)),
         tts_voice=getattr(args, "tts_voice", None),
         beep_cues=bool(getattr(args, "beep_cues", False)),
+        duration=duration,
+        routine=routine,
     )
 
 
@@ -344,12 +494,26 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
         return None
 
     output_format = config.output_format or "mp3"
-    LOGGER.info(
-        "Generating workout audio: %s sets x %s reps to %s",
-        config.sets,
-        config.reps,
-        config.output_file,
-    )
+    if config.routine is not None:
+        LOGGER.info(
+            "Generating workout audio for routine %r to %s",
+            config.routine.name,
+            config.output_file,
+        )
+    elif config.duration is not None:
+        LOGGER.info(
+            "Generating timed workout audio: %s x %gs to %s",
+            config.sets,
+            config.duration,
+            config.output_file,
+        )
+    else:
+        LOGGER.info(
+            "Generating workout audio: %s sets x %s reps to %s",
+            config.sets,
+            config.reps,
+            config.output_file,
+        )
     combined_audio = build_workout_audio(config, plan=plan)
     _audio.export_workout_audio(combined_audio, config.output_file, output_format)
     LOGGER.info("Audio file created: %s", config.output_file)
@@ -359,6 +523,9 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
 def main(argv: Sequence[str] | None = None) -> None:
     parser = create_parser()
     args = parser.parse_args(argv)
+    if args.list_presets:
+        print(format_preset_list())
+        return
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",

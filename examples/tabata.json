@@ -1,0 +1,18 @@
+{
+  "name": "Tabata 4-Minute Sprint",
+  "countdown": 3,
+  "timing_mode": "cadence",
+  "announce_rest": true,
+  "announce_halfway": true,
+  "announce_last_set": true,
+  "rest_warnings": [3, 2, 1],
+  "exercises": [
+    {
+      "name": "Sprint",
+      "sets": 8,
+      "duration": 20,
+      "set_gap": 10,
+      "set_start_gap": 0.5
+    }
+  ]
+}

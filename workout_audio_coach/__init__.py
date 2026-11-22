@@ -20,6 +20,14 @@ from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
 )
+from workout_audio_coach.routines import (
+    BUILTIN_PRESETS,
+    PRESET_NAMES,
+    ExerciseSpec,
+    WorkoutRoutine,
+    get_preset_routine,
+    load_routine_file,
+)
 from workout_audio_coach.tts import (
     EspeakBackend,
     GTTSBackend,
@@ -30,10 +38,13 @@ from workout_audio_coach.tts import (
 )
 
 __all__ = [
+    "BUILTIN_PRESETS",
+    "PRESET_NAMES",
     "SUPPORTED_OUTPUT_FORMATS",
     "SUPPORTED_TIMING_MODES",
     "SUPPORTED_TTS_BACKENDS",
     "EspeakBackend",
+    "ExerciseSpec",
     "GTTSBackend",
     "MacOSSayBackend",
     "PhrasePack",
@@ -42,6 +53,7 @@ __all__ = [
     "TimingMode",
     "ToneBackend",
     "WorkoutConfig",
+    "WorkoutRoutine",
     "WorkoutStep",
     "__version__",
     "build_config",
@@ -52,5 +64,7 @@ __all__ = [
     "create_tts_backend",
     "format_workout_plan",
     "get_phrase_pack",
+    "get_preset_routine",
+    "load_routine_file",
     "resolve_output_format",
 ]
