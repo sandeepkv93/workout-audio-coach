@@ -12,8 +12,10 @@ DEFAULT_SET_START_GAP_SECONDS: float = 1.0
 DEFAULT_COUNTDOWN_GAP_SECONDS: float = 1.0
 SUPPORTED_OUTPUT_FORMATS: tuple[str, ...] = ("mp3", "wav", "ogg", "flac", "m4a")
 SUPPORTED_TIMING_MODES: tuple[str, ...] = ("gap", "cadence")
+SUPPORTED_TTS_BACKENDS: tuple[str, ...] = ("gtts", "espeak", "say", "tone")
 
 TimingMode = Literal["gap", "cadence"]
+TTSBackendName = Literal["gtts", "espeak", "say", "tone"]
 StepKind = Literal[
     "countdown",
     "set",
@@ -51,6 +53,11 @@ class WorkoutConfig:
     rest_warnings: tuple[int, ...] = ()
     announce_halfway: bool = False
     announce_last_set: bool = False
+    tts_backend: TTSBackendName = "gtts"
+    tts_tld: str = "com"
+    tts_slow: bool = False
+    tts_voice: str | None = None
+    beep_cues: bool = False
 
 
 @dataclass(frozen=True)

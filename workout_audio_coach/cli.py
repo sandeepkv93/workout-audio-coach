@@ -16,7 +16,9 @@ from workout_audio_coach.config import (
     DEFAULT_SET_START_GAP_SECONDS,
     SUPPORTED_OUTPUT_FORMATS,
     SUPPORTED_TIMING_MODES,
+    SUPPORTED_TTS_BACKENDS,
     TimingMode,
+    TTSBackendName,
     WorkoutConfig,
     WorkoutStep,
     default_cache_dir,
@@ -239,6 +241,32 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write the workout script preview to a text file.",
     )
     parser.add_argument(
+        "--tts-backend",
+        choices=SUPPORTED_TTS_BACKENDS,
+        default="gtts",
+        help="Speech backend: gtts (online), espeak/say (offline OS), or tone (offline beeps).",
+    )
+    parser.add_argument(
+        "--tts-tld",
+        default="com",
+        help="Top-level domain for gTTS accent selection (e.g. com, co.uk, com.au).",
+    )
+    parser.add_argument(
+        "--tts-slow",
+        action="store_true",
+        help="Use slower speech rate for gTTS synthesis.",
+    )
+    parser.add_argument(
+        "--tts-voice",
+        default=None,
+        help="Voice name for local espeak or macOS say backends.",
+    )
+    parser.add_argument(
+        "--beep-cues",
+        action="store_true",
+        help="Prepend synthesized audio tones before countdown, set, rest, and completion cues.",
+    )
+    parser.add_argument(
         "--tts-attempts",
         type=positive_int,
         default=3,
@@ -272,6 +300,7 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
     raw_warnings: str = getattr(args, "rest_warnings", "") or ""
     rest_warnings = parse_rest_warnings(raw_warnings)
     timing_mode: TimingMode = getattr(args, "timing_mode", "gap")
+    tts_backend: TTSBackendName = getattr(args, "tts_backend", "gtts")
 
     return WorkoutConfig(
         reps=args.reps,
@@ -297,6 +326,11 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         rest_warnings=rest_warnings,
         announce_halfway=bool(getattr(args, "announce_halfway", False)),
         announce_last_set=bool(getattr(args, "announce_last_set", False)),
+        tts_backend=tts_backend,
+        tts_tld=str(getattr(args, "tts_tld", "com")),
+        tts_slow=bool(getattr(args, "tts_slow", False)),
+        tts_voice=getattr(args, "tts_voice", None),
+        beep_cues=bool(getattr(args, "beep_cues", False)),
     )
 
 

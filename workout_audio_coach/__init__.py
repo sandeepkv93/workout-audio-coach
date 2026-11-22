@@ -7,6 +7,10 @@ from workout_audio_coach.cli import (
 )
 from workout_audio_coach.config import (
     SUPPORTED_OUTPUT_FORMATS,
+    SUPPORTED_TIMING_MODES,
+    SUPPORTED_TTS_BACKENDS,
+    TimingMode,
+    TTSBackendName,
     WorkoutConfig,
     WorkoutStep,
     resolve_output_format,
@@ -16,10 +20,27 @@ from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
 )
+from workout_audio_coach.tts import (
+    EspeakBackend,
+    GTTSBackend,
+    MacOSSayBackend,
+    ToneBackend,
+    TTSBackend,
+    create_tts_backend,
+)
 
 __all__ = [
     "SUPPORTED_OUTPUT_FORMATS",
+    "SUPPORTED_TIMING_MODES",
+    "SUPPORTED_TTS_BACKENDS",
+    "EspeakBackend",
+    "GTTSBackend",
+    "MacOSSayBackend",
     "PhrasePack",
+    "TTSBackend",
+    "TTSBackendName",
+    "TimingMode",
+    "ToneBackend",
     "WorkoutConfig",
     "WorkoutStep",
     "__version__",
@@ -28,6 +49,7 @@ __all__ = [
     "build_workout_plan",
     "create_combined_audio",
     "create_parser",
+    "create_tts_backend",
     "format_workout_plan",
     "get_phrase_pack",
     "resolve_output_format",

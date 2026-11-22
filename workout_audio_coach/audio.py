@@ -4,12 +4,22 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from workout_audio_coach.config import WorkoutConfig, WorkoutStep
+from workout_audio_coach.config import StepKind, WorkoutConfig, WorkoutStep
 from workout_audio_coach.planner import build_workout_plan
-from workout_audio_coach.tts import ensure_ffmpeg_available, load_or_generate_segment
+from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
+from workout_audio_coach.tts import (
+    TTSBackend,
+    create_tts_backend,
+    ensure_ffmpeg_available,
+    load_or_generate_segment,
+)
 
 if TYPE_CHECKING:
     from pydub import AudioSegment
+
+BEEP_TRIGGER_KINDS: frozenset[StepKind] = frozenset(
+    {"countdown", "set", "exercise", "rest", "complete"}
+)
 
 
 class SegmentLoader(Protocol):
@@ -61,37 +71,107 @@ def concatenate_segments(segments: Sequence[AudioSegment]) -> AudioSegment:
     )
 
 
+def _uses_custom_backend_settings(config: WorkoutConfig) -> bool:
+    return (
+        config.tts_backend != "gtts"
+        or config.tts_tld != "com"
+        or config.tts_slow
+        or config.tts_voice is not None
+    )
+
+
 def build_workout_audio(
     config: WorkoutConfig,
     *,
     plan: Sequence[WorkoutStep] | None = None,
-    segment_loader: SegmentLoader = load_or_generate_segment,
+    segment_loader: SegmentLoader | None = None,
+    backend: TTSBackend | None = None,
 ) -> AudioSegment:
     from pydub import AudioSegment
 
     resolved_plan = list(plan) if plan is not None else build_workout_plan(config)
-    unique_phrases = list(
-        dict.fromkeys(step.spoken_text for step in resolved_plan if step.spoken_text is not None)
+    use_explicit_loader = (
+        segment_loader is not None and backend is None and not _uses_custom_backend_settings(config)
     )
-    rendered_phrases = {
-        phrase: segment_loader(
-            phrase,
-            config.language,
-            config.cache_dir,
-            use_cache=config.use_cache,
-            attempts=config.tts_attempts,
-            initial_backoff_seconds=config.tts_initial_backoff,
+    resolved_backend = (
+        backend
+        if backend is not None
+        else create_tts_backend(
+            config.tts_backend,
+            tld=config.tts_tld,
+            slow=config.tts_slow,
+            voice=config.tts_voice,
         )
-        for phrase in unique_phrases
-    }
+    )
 
+    rendered_phrases: dict[tuple[str, StepKind], AudioSegment] = {}
+    if use_explicit_loader and segment_loader is not None:
+        unique_texts = list(
+            dict.fromkeys(
+                step.spoken_text for step in resolved_plan if step.spoken_text is not None
+            )
+        )
+        by_text = {
+            phrase: segment_loader(
+                phrase,
+                config.language,
+                config.cache_dir,
+                use_cache=config.use_cache,
+                attempts=config.tts_attempts,
+                initial_backoff_seconds=config.tts_initial_backoff,
+            )
+            for phrase in unique_texts
+        }
+        for step in resolved_plan:
+            if step.spoken_text is not None:
+                rendered_phrases[(step.spoken_text, step.kind)] = by_text[step.spoken_text]
+    else:
+        cache_keys: list[tuple[str, StepKind]] = []
+        seen_keys: set[tuple[str, StepKind]] = set()
+        for step in resolved_plan:
+            if step.spoken_text is None:
+                continue
+            key = (step.spoken_text, step.kind if resolved_backend.name == "tone" else "cue")
+            if key not in seen_keys:
+                seen_keys.add(key)
+                cache_keys.append(key)
+
+        loaded_by_key = {
+            (phrase, kind): load_or_generate_segment(
+                phrase,
+                config.language,
+                config.cache_dir,
+                use_cache=config.use_cache,
+                attempts=config.tts_attempts,
+                initial_backoff_seconds=config.tts_initial_backoff,
+                backend=resolved_backend,
+                kind=kind,
+            )
+            for phrase, kind in cache_keys
+        }
+        for step in resolved_plan:
+            if step.spoken_text is not None:
+                lookup_kind: StepKind = step.kind if resolved_backend.name == "tone" else "cue"
+                rendered_phrases[(step.spoken_text, step.kind)] = loaded_by_key[
+                    (step.spoken_text, lookup_kind)
+                ]
+
+    beep_cache: dict[StepKind, AudioSegment] = {}
     parts: list[AudioSegment] = []
     for step in resolved_plan:
         spoken_ms = 0
+        if config.beep_cues and resolved_backend.name != "tone" and step.kind in BEEP_TRIGGER_KINDS:
+            if step.kind not in beep_cache:
+                beep_cache[step.kind] = wav_bytes_to_segment(cue_tone_wav_bytes(step.kind))
+            beep_seg = beep_cache[step.kind]
+            if len(beep_seg) > 0:
+                parts.append(beep_seg)
+                spoken_ms += len(beep_seg)
+
         if step.spoken_text is not None:
-            segment = rendered_phrases[step.spoken_text]
+            segment = rendered_phrases[(step.spoken_text, step.kind)]
             parts.append(segment)
-            spoken_ms = len(segment)
+            spoken_ms += len(segment)
 
         if step.target_interval is not None and step.target_interval > 0:
             duration_ms = max(0, round(step.target_interval * 1000) - spoken_ms)
