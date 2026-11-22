@@ -1,0 +1,25 @@
+name = "Upper & Core Superset Circuit"
+countdown = 3
+timing_mode = "gap"
+announce_rest = true
+announce_halfway = true
+announce_last_set = true
+rest_warnings = [10, 3, 2, 1]
+
+[[circuits]]
+name = "Push & Core Superset"
+rounds = 3
+exercise_gap = 10
+round_gap = 45
+
+[[circuits.exercises]]
+name = "Tempo Push-ups"
+reps = 8
+tempo = "3-1-1"
+rep_gap = 1.0
+set_start_gap = 1.0
+
+[[circuits.exercises]]
+name = "Hollow Body Hold"
+duration = 30
+set_start_gap = 1.0

@@ -7,7 +7,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from workout_audio_coach.config import SUPPORTED_TIMING_MODES, TimingMode, parse_rest_warnings
+from workout_audio_coach.config import (
+    SUPPORTED_TIMING_MODES,
+    TempoSpec,
+    TimingMode,
+    parse_rest_warnings,
+    parse_tempo,
+)
 from workout_audio_coach.localization import VALID_PHRASE_KEYS
 
 
@@ -21,6 +27,7 @@ class ExerciseSpec:
     set_gap: float = 30.0
     set_start_gap: float = 1.0
     rest_after: float | None = None
+    tempo: TempoSpec | None = None
 
     def rep_counts(self) -> tuple[int, ...] | None:
         if self.reps is None:
@@ -36,9 +43,20 @@ class ExerciseSpec:
 
 
 @dataclass(frozen=True)
+class CircuitSpec:
+    name: str
+    rounds: int
+    exercises: tuple[ExerciseSpec, ...]
+    exercise_gap: float = 15.0
+    round_gap: float = 60.0
+    rest_after: float | None = None
+
+
+@dataclass(frozen=True)
 class WorkoutRoutine:
     name: str
-    exercises: tuple[ExerciseSpec, ...]
+    exercises: tuple[ExerciseSpec, ...] = ()
+    circuits: tuple[CircuitSpec, ...] = ()
     exercise_gap: float = 30.0
     countdown: int | None = None
     language: str | None = None
@@ -48,6 +66,14 @@ class WorkoutRoutine:
     announce_halfway: bool | None = None
     announce_last_set: bool | None = None
     phrase_overrides: tuple[tuple[str, str], ...] = ()
+
+    def total_exercise_count(self) -> int:
+        return len(self.exercises) + sum(len(c.exercises) for c in self.circuits)
+
+    def total_set_count(self) -> int:
+        direct = sum(ex.total_sets() for ex in self.exercises)
+        in_circuits = sum(c.rounds * len(c.exercises) for c in self.circuits)
+        return direct + in_circuits
 
 
 BUILTIN_PRESETS: dict[str, WorkoutRoutine] = {
@@ -89,13 +115,20 @@ BUILTIN_PRESETS: dict[str, WorkoutRoutine] = {
     ),
     "hiit": WorkoutRoutine(
         name="Full Body HIIT Circuit",
-        exercises=(
-            ExerciseSpec(name="Jumping Jacks", sets=3, duration=30.0, set_gap=15.0),
-            ExerciseSpec(name="Push-ups", sets=3, duration=30.0, set_gap=15.0),
-            ExerciseSpec(name="Bodyweight Squats", sets=3, duration=30.0, set_gap=15.0),
-            ExerciseSpec(name="Plank", sets=3, duration=30.0, set_gap=15.0),
+        circuits=(
+            CircuitSpec(
+                name="HIIT Circuit",
+                rounds=3,
+                exercise_gap=15.0,
+                round_gap=45.0,
+                exercises=(
+                    ExerciseSpec(name="Jumping Jacks", duration=30.0),
+                    ExerciseSpec(name="Push-ups", duration=30.0),
+                    ExerciseSpec(name="Bodyweight Squats", duration=30.0),
+                    ExerciseSpec(name="Plank", duration=30.0),
+                ),
+            ),
         ),
-        exercise_gap=30.0,
         countdown=3,
         timing_mode="cadence",
         announce_rest=True,
@@ -133,8 +166,9 @@ def get_preset_routine(name: str) -> WorkoutRoutine:
 def format_preset_list() -> str:
     lines = ["Available workout presets:", ""]
     for key, routine in BUILTIN_PRESETS.items():
-        exercise_summary = ", ".join(ex.name for ex in routine.exercises)
-        lines.append(f"  {key:<10} {routine.name} ({exercise_summary})")
+        names = [ex.name for ex in routine.exercises] + [c.name for c in routine.circuits]
+        summary = ", ".join(names)
+        lines.append(f"  {key:<10} {routine.name} ({summary})")
     return "\n".join(lines)
 
 
@@ -166,69 +200,72 @@ def _require_positive_float(value: object, field_name: str) -> float:
     return parsed
 
 
-def _parse_exercise(raw: object, index: int) -> ExerciseSpec:
+def _parse_exercise(raw: object, label: str) -> ExerciseSpec:
     if not isinstance(raw, Mapping):
-        raise ValueError(f"exercises[{index}] must be a mapping/table")
+        raise ValueError(f"{label} must be a mapping/table")
 
     name = raw.get("name")
     if not isinstance(name, str) or not name.strip():
-        raise ValueError(f"exercises[{index}].name must be a non-empty string")
+        raise ValueError(f"{label}.name must be a non-empty string")
 
     raw_reps = raw.get("reps")
     raw_duration = raw.get("duration")
     if raw_reps is None and raw_duration is None:
-        raise ValueError(f"exercises[{index}] ({name!r}) must specify either 'reps' or 'duration'")
+        raise ValueError(f"{label} ({name!r}) must specify either 'reps' or 'duration'")
     if raw_reps is not None and raw_duration is not None:
-        raise ValueError(f"exercises[{index}] ({name!r}) cannot specify both 'reps' and 'duration'")
+        raise ValueError(f"{label} ({name!r}) cannot specify both 'reps' and 'duration'")
 
     parsed_reps: int | tuple[int, ...] | None = None
     inferred_sets: int | None = None
     if raw_reps is not None:
         if isinstance(raw_reps, list):
             if not raw_reps:
-                raise ValueError(f"exercises[{index}].reps list cannot be empty")
+                raise ValueError(f"{label}.reps list cannot be empty")
             parsed_reps = tuple(
-                _require_positive_int(item, f"exercises[{index}].reps[{i}]")
-                for i, item in enumerate(raw_reps)
+                _require_positive_int(item, f"{label}.reps[{i}]") for i, item in enumerate(raw_reps)
             )
             inferred_sets = len(parsed_reps)
         else:
-            parsed_reps = _require_positive_int(raw_reps, f"exercises[{index}].reps")
+            parsed_reps = _require_positive_int(raw_reps, f"{label}.reps")
 
     parsed_duration: float | None = None
     if raw_duration is not None:
-        parsed_duration = _require_positive_float(raw_duration, f"exercises[{index}].duration")
+        parsed_duration = _require_positive_float(raw_duration, f"{label}.duration")
 
     raw_sets = raw.get("sets")
     if raw_sets is not None:
-        sets = _require_positive_int(raw_sets, f"exercises[{index}].sets")
+        sets = _require_positive_int(raw_sets, f"{label}.sets")
         if inferred_sets is not None and sets != inferred_sets:
             raise ValueError(
-                f"exercises[{index}].sets ({sets}) does not match length of reps ({inferred_sets})"
+                f"{label}.sets ({sets}) does not match length of reps ({inferred_sets})"
             )
     else:
         sets = inferred_sets if inferred_sets is not None else 1
 
     rep_gap = (
-        _require_non_negative_float(raw["rep_gap"], f"exercises[{index}].rep_gap")
-        if "rep_gap" in raw
-        else 1.0
+        _require_non_negative_float(raw["rep_gap"], f"{label}.rep_gap") if "rep_gap" in raw else 1.0
     )
     set_gap = (
-        _require_non_negative_float(raw["set_gap"], f"exercises[{index}].set_gap")
+        _require_non_negative_float(raw["set_gap"], f"{label}.set_gap")
         if "set_gap" in raw
         else 30.0
     )
     set_start_gap = (
-        _require_non_negative_float(raw["set_start_gap"], f"exercises[{index}].set_start_gap")
+        _require_non_negative_float(raw["set_start_gap"], f"{label}.set_start_gap")
         if "set_start_gap" in raw
         else 1.0
     )
     rest_after = (
-        _require_non_negative_float(raw["rest_after"], f"exercises[{index}].rest_after")
+        _require_non_negative_float(raw["rest_after"], f"{label}.rest_after")
         if "rest_after" in raw and raw["rest_after"] is not None
         else None
     )
+    tempo: TempoSpec | None = None
+    if "tempo" in raw and raw["tempo"] is not None:
+        raw_tempo = raw["tempo"]
+        if not isinstance(raw_tempo, str):
+            raise ValueError(f"{label}.tempo must be a string like '3-1-1'")
+        tempo = parse_tempo(raw_tempo)
 
     return ExerciseSpec(
         name=name.strip(),
@@ -239,21 +276,77 @@ def _parse_exercise(raw: object, index: int) -> ExerciseSpec:
         set_gap=set_gap,
         set_start_gap=set_start_gap,
         rest_after=rest_after,
+        tempo=tempo,
+    )
+
+
+def _parse_circuit(raw: object, index: int) -> CircuitSpec:
+    label = f"circuits[{index}]"
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{label} must be a mapping/table")
+    name = raw.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"{label}.name must be a non-empty string")
+    rounds = _require_positive_int(raw.get("rounds", 1), f"{label}.rounds")
+    raw_exercises = raw.get("exercises")
+    if not isinstance(raw_exercises, list) or not raw_exercises:
+        raise ValueError(f"{label} must define a non-empty 'exercises' list")
+    exercises = tuple(
+        _parse_exercise(item, f"{label}.exercises[{idx}]") for idx, item in enumerate(raw_exercises)
+    )
+    exercise_gap = (
+        _require_non_negative_float(raw["exercise_gap"], f"{label}.exercise_gap")
+        if "exercise_gap" in raw
+        else 15.0
+    )
+    round_gap = (
+        _require_non_negative_float(raw["round_gap"], f"{label}.round_gap")
+        if "round_gap" in raw
+        else 60.0
+    )
+    rest_after = (
+        _require_non_negative_float(raw["rest_after"], f"{label}.rest_after")
+        if "rest_after" in raw and raw["rest_after"] is not None
+        else None
+    )
+    return CircuitSpec(
+        name=name.strip(),
+        rounds=rounds,
+        exercises=exercises,
+        exercise_gap=exercise_gap,
+        round_gap=round_gap,
+        rest_after=rest_after,
     )
 
 
 def parse_routine_dict(
-    data: Mapping[str, object], *, default_name: str = "Workout"
+    data: Mapping[str, object],
+    *,
+    default_name: str = "Workout",
 ) -> WorkoutRoutine:
     raw_name = data.get("name", default_name)
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise ValueError("routine 'name' must be a non-empty string")
 
     raw_exercises = data.get("exercises")
-    if not isinstance(raw_exercises, list) or not raw_exercises:
-        raise ValueError("routine must define a non-empty 'exercises' list")
+    raw_circuits = data.get("circuits")
+    exercises: tuple[ExerciseSpec, ...] = ()
+    circuits: tuple[CircuitSpec, ...] = ()
 
-    exercises = tuple(_parse_exercise(item, idx) for idx, item in enumerate(raw_exercises))
+    if raw_exercises is not None:
+        if not isinstance(raw_exercises, list):
+            raise ValueError("routine 'exercises' must be a list")
+        exercises = tuple(
+            _parse_exercise(item, f"exercises[{idx}]") for idx, item in enumerate(raw_exercises)
+        )
+
+    if raw_circuits is not None:
+        if not isinstance(raw_circuits, list):
+            raise ValueError("routine 'circuits' must be a list")
+        circuits = tuple(_parse_circuit(item, idx) for idx, item in enumerate(raw_circuits))
+
+    if not exercises and not circuits:
+        raise ValueError("routine must define a non-empty 'exercises' or 'circuits' list")
 
     exercise_gap = (
         _require_non_negative_float(data["exercise_gap"], "exercise_gap")
@@ -328,6 +421,7 @@ def parse_routine_dict(
     return WorkoutRoutine(
         name=raw_name.strip(),
         exercises=exercises,
+        circuits=circuits,
         exercise_gap=exercise_gap,
         countdown=countdown,
         language=language,

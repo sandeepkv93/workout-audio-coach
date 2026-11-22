@@ -16,6 +16,7 @@ from workout_audio_coach.config import (
     SUPPORTED_OUTPUT_FORMATS,
     SUPPORTED_TIMING_MODES,
     SUPPORTED_TTS_BACKENDS,
+    TempoSpec,
     TimingMode,
     TTSBackendName,
     WorkoutConfig,
@@ -25,10 +26,12 @@ from workout_audio_coach.config import (
     non_negative_float,
     non_negative_int,
     parse_rest_warnings,
+    parse_tempo,
     positive_float,
     positive_int,
     resolve_output_format,
 )
+from workout_audio_coach.live import run_live_coach
 from workout_audio_coach.localization import parse_phrase_override
 from workout_audio_coach.pcm import PCMAudio
 from workout_audio_coach.planner import (
@@ -254,6 +257,21 @@ def create_parser() -> argparse.ArgumentParser:
         help="'gap' inserts full silence after speech; 'cadence' keeps fixed intervals.",
     )
     parser.add_argument(
+        "--tempo",
+        default=None,
+        help="Rep tempo coaching in ECC-PAUSE-CONC[-TOP] seconds (e.g. '3-1-1').",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Run the workout live in the terminal with progress display and interactive controls.",
+    )
+    parser.add_argument(
+        "--live-silent",
+        action="store_true",
+        help="Run --live visually without local audio playback.",
+    )
+    parser.add_argument(
         "--announce-rest",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -404,14 +422,17 @@ def _resolve_routine(args: argparse.Namespace) -> WorkoutRoutine | None:
 
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
     timestamps_file: Path | None = getattr(args, "timestamps_file", None)
+    live_mode: bool = bool(getattr(args, "live", False))
     if (
         args.output_file is None
         and not args.preview
         and args.script_file is None
         and timestamps_file is None
+        and not live_mode
     ):
         raise ValueError(
-            "either --output-file or one of --preview/--script-file/--timestamps-file is required"
+            "either --output-file or one of --preview/--script-file/--timestamps-file/--live "
+            "is required"
         )
 
     routine = _resolve_routine(args)
@@ -423,7 +444,7 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
     set_gap: float = 0.0
 
     if routine is not None:
-        sets = sum(ex.total_sets() for ex in routine.exercises)
+        sets = routine.total_set_count()
     elif duration is not None:
         if args.reps is not None:
             raise ValueError("cannot specify both --duration and --reps")
@@ -519,6 +540,8 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         )
     )
 
+    raw_tempo: str | None = getattr(args, "tempo", None)
+    tempo: TempoSpec | None = parse_tempo(raw_tempo) if raw_tempo is not None else None
     tts_backend: TTSBackendName = getattr(args, "tts_backend", "gtts")
 
     return WorkoutConfig(
@@ -560,6 +583,9 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         music_gain_db=float(getattr(args, "music_gain_db", -6.0)),
         duck_db=float(getattr(args, "duck_db", -12.0)),
         tts_workers=int(getattr(args, "tts_workers", 4)),
+        tempo=tempo,
+        live=live_mode,
+        live_silent=bool(getattr(args, "live_silent", False)),
     )
 
 
@@ -567,6 +593,13 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
     config = args if isinstance(args, WorkoutConfig) else build_config(args)
     plan = build_workout_plan(config)
     maybe_write_script_preview(config, plan)
+
+    if config.live:
+        run_live_coach(config, plan, silent=config.live_silent)
+        if config.output_file is None:
+            if config.timestamps_file is not None:
+                export_timeline(build_estimated_timeline(plan), config.timestamps_file)
+            return None
 
     if config.output_file is None:
         if config.timestamps_file is not None:

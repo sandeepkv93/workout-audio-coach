@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from workout_audio_coach.config import (
+    TempoSpec,
     TimingMode,
     WorkoutConfig,
     WorkoutStep,
 )
 from workout_audio_coach.localization import PhrasePack, get_phrase_pack
-from workout_audio_coach.routines import ExerciseSpec
+from workout_audio_coach.routines import CircuitSpec, ExerciseSpec
 from workout_audio_coach.timeline import build_estimated_timeline, format_duration
 
 
@@ -128,6 +129,92 @@ def build_timed_work_steps(
     ]
 
 
+def _build_tempo_rep_steps(
+    rep_number: int,
+    tempo: TempoSpec,
+    *,
+    trailing_gap: float,
+    phrases: PhrasePack,
+    timing_mode: TimingMode,
+    section: str,
+) -> list[WorkoutStep]:
+    steps: list[WorkoutStep] = [
+        WorkoutStep(spoken_text=str(rep_number), gap_after=0.3, kind="rep", section=section)
+    ]
+    beat = 1.0
+    cadence_beat = beat if timing_mode == "cadence" else None
+
+    # Eccentric phase: "Down", "2", ..., N
+    steps.append(
+        WorkoutStep(
+            spoken_text=phrases.tempo_down,
+            gap_after=beat,
+            target_interval=cadence_beat,
+            kind="cue",
+            section=section,
+        )
+    )
+    for count in range(2, tempo.eccentric + 1):
+        steps.append(
+            WorkoutStep(
+                spoken_text=str(count),
+                gap_after=beat,
+                target_interval=cadence_beat,
+                kind="cue",
+                section=section,
+            )
+        )
+
+    # Bottom pause phase
+    if tempo.pause > 0:
+        pause_secs = float(tempo.pause)
+        steps.append(
+            WorkoutStep(
+                spoken_text=phrases.tempo_hold,
+                gap_after=pause_secs,
+                target_interval=pause_secs if timing_mode == "cadence" else None,
+                kind="cue",
+                section=section,
+            )
+        )
+
+    # Concentric phase: "Up", "2", ..., N
+    final_gap = float(tempo.top_pause) + trailing_gap
+    if tempo.concentric == 1:
+        steps.append(
+            WorkoutStep(
+                spoken_text=phrases.tempo_up,
+                gap_after=final_gap,
+                target_interval=final_gap if (timing_mode == "cadence" and final_gap > 0) else None,
+                kind="cue",
+                section=section,
+            )
+        )
+    else:
+        steps.append(
+            WorkoutStep(
+                spoken_text=phrases.tempo_up,
+                gap_after=beat,
+                target_interval=cadence_beat,
+                kind="cue",
+                section=section,
+            )
+        )
+        for count in range(2, tempo.concentric + 1):
+            is_last_count = count == tempo.concentric
+            gap = final_gap if is_last_count else beat
+            steps.append(
+                WorkoutStep(
+                    spoken_text=str(count),
+                    gap_after=gap,
+                    target_interval=gap if (timing_mode == "cadence" and gap > 0) else None,
+                    kind="cue",
+                    section=section,
+                )
+            )
+    return steps
+
+
 def _build_rep_set_steps(
     reps: int,
     *,
@@ -136,6 +223,7 @@ def _build_rep_set_steps(
     announce_halfway: bool,
     timing_mode: TimingMode,
     section: str,
+    tempo: TempoSpec | None = None,
 ) -> list[WorkoutStep]:
     steps: list[WorkoutStep] = []
     halfway_rep = reps // 2 if (announce_halfway and reps >= 4) else None
@@ -144,6 +232,30 @@ def _build_rep_set_steps(
         has_next_rep = rep_number < reps
         gap_after = rep_gap if has_next_rep else 0.0
         target = rep_gap if (timing_mode == "cadence" and has_next_rep and rep_gap > 0) else None
+
+        if tempo is not None:
+            steps.extend(
+                _build_tempo_rep_steps(
+                    rep_number,
+                    tempo,
+                    trailing_gap=0.0 if (halfway_rep == rep_number) else gap_after,
+                    phrases=phrases,
+                    timing_mode=timing_mode,
+                    section=section,
+                )
+            )
+            if halfway_rep is not None and rep_number == halfway_rep:
+                steps.append(
+                    WorkoutStep(
+                        spoken_text=phrases.halfway,
+                        gap_after=gap_after,
+                        kind="cue",
+                        target_interval=target,
+                        section=section,
+                    )
+                )
+            continue
+
         if halfway_rep is not None and rep_number == halfway_rep:
             steps.append(
                 WorkoutStep(
@@ -185,6 +297,7 @@ def _build_exercise_steps(
     steps: list[WorkoutStep] = []
     total_sets = exercise.total_sets()
     rep_counts = exercise.rep_counts()
+    effective_tempo = exercise.tempo if exercise.tempo is not None else config.tempo
 
     if announce_exercise_name:
         steps.append(
@@ -252,6 +365,7 @@ def _build_exercise_steps(
                     announce_halfway=config.announce_halfway,
                     timing_mode=config.timing_mode,
                     section=section_name,
+                    tempo=effective_tempo,
                 )
             )
 
@@ -264,6 +378,122 @@ def _build_exercise_steps(
                     rest_warnings=config.rest_warnings,
                     timing_mode=config.timing_mode,
                     section=f"Rest after {section_name}",
+                )
+            )
+
+    return steps
+
+
+def _build_circuit_steps(
+    circuit: CircuitSpec,
+    *,
+    config: WorkoutConfig,
+    phrases: PhrasePack,
+) -> list[WorkoutStep]:
+    steps: list[WorkoutStep] = [
+        WorkoutStep(
+            spoken_text=circuit.name,
+            gap_after=0.5,
+            kind="exercise",
+            section=circuit.name,
+        )
+    ]
+
+    for round_index in range(circuit.rounds):
+        round_num = round_index + 1
+        round_label = phrases.format_round(round_num)
+        section_prefix = f"{circuit.name} - {round_label}"
+        is_last_round = (
+            config.announce_last_set and circuit.rounds >= 2 and round_num == circuit.rounds
+        )
+
+        if is_last_round:
+            steps.append(
+                WorkoutStep(
+                    spoken_text=round_label,
+                    gap_after=0.3,
+                    kind="set",
+                    section=section_prefix,
+                )
+            )
+            steps.append(
+                WorkoutStep(
+                    spoken_text=phrases.last_set,
+                    gap_after=0.5,
+                    kind="cue",
+                    section=section_prefix,
+                )
+            )
+        else:
+            steps.append(
+                WorkoutStep(
+                    spoken_text=round_label,
+                    gap_after=0.5,
+                    kind="set",
+                    section=section_prefix,
+                )
+            )
+
+        for ex_idx, exercise in enumerate(circuit.exercises):
+            ex_section = f"{section_prefix} - {exercise.name}"
+            steps.append(
+                WorkoutStep(
+                    spoken_text=exercise.name,
+                    gap_after=exercise.set_start_gap,
+                    kind="exercise",
+                    section=ex_section,
+                )
+            )
+            effective_tempo = exercise.tempo if exercise.tempo is not None else config.tempo
+            rep_counts = exercise.rep_counts()
+            if exercise.duration is not None:
+                steps.extend(
+                    build_timed_work_steps(
+                        exercise.duration,
+                        phrases=phrases,
+                        announce_halfway=config.announce_halfway,
+                        timing_mode=config.timing_mode,
+                        section=ex_section,
+                    )
+                )
+            elif rep_counts is not None:
+                reps_for_round = rep_counts[min(round_index, len(rep_counts) - 1)]
+                steps.extend(
+                    _build_rep_set_steps(
+                        reps_for_round,
+                        rep_gap=exercise.rep_gap,
+                        phrases=phrases,
+                        announce_halfway=config.announce_halfway,
+                        timing_mode=config.timing_mode,
+                        section=ex_section,
+                        tempo=effective_tempo,
+                    )
+                )
+
+            if ex_idx + 1 < len(circuit.exercises):
+                gap = (
+                    exercise.rest_after if exercise.rest_after is not None else circuit.exercise_gap
+                )
+                steps.extend(
+                    build_rest_steps(
+                        gap,
+                        announce_rest=config.announce_rest,
+                        phrases=phrases,
+                        rest_warnings=config.rest_warnings,
+                        timing_mode=config.timing_mode,
+                        section=f"Rest before {circuit.exercises[ex_idx + 1].name}",
+                    )
+                )
+
+        if round_num < circuit.rounds:
+            steps.extend(
+                build_rest_steps(
+                    circuit.round_gap,
+                    announce_rest=config.announce_rest,
+                    phrases=phrases,
+                    rest_warnings=config.rest_warnings,
+                    timing_mode=config.timing_mode,
+                    section=f"Rest after {section_prefix}",
                 )
             )
 
@@ -297,7 +527,7 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
             )
 
     if config.routine is not None:
-        multi_exercise = len(config.routine.exercises) > 1
+        multi_exercise = config.routine.total_exercise_count() > 1
         for ex_index, exercise in enumerate(config.routine.exercises):
             plan.extend(
                 _build_exercise_steps(
@@ -307,13 +537,20 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
                     announce_exercise_name=multi_exercise or exercise.name.lower() != "work",
                 )
             )
-            if ex_index + 1 < len(config.routine.exercises):
+            has_more = (ex_index + 1 < len(config.routine.exercises)) or bool(
+                config.routine.circuits
+            )
+            if has_more:
                 transition_gap = (
                     exercise.rest_after
                     if exercise.rest_after is not None
                     else config.routine.exercise_gap
                 )
-                next_exercise = config.routine.exercises[ex_index + 1]
+                next_name = (
+                    config.routine.exercises[ex_index + 1].name
+                    if ex_index + 1 < len(config.routine.exercises)
+                    else config.routine.circuits[0].name
+                )
                 plan.extend(
                     build_rest_steps(
                         transition_gap,
@@ -321,7 +558,27 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
                         phrases=phrases,
                         rest_warnings=config.rest_warnings,
                         timing_mode=config.timing_mode,
-                        section=f"Transition to {next_exercise.name}",
+                        section=f"Transition to {next_name}",
+                    )
+                )
+
+        for circ_index, circuit in enumerate(config.routine.circuits):
+            plan.extend(_build_circuit_steps(circuit, config=config, phrases=phrases))
+            if circ_index + 1 < len(config.routine.circuits):
+                transition_gap = (
+                    circuit.rest_after
+                    if circuit.rest_after is not None
+                    else config.routine.exercise_gap
+                )
+                next_name = config.routine.circuits[circ_index + 1].name
+                plan.extend(
+                    build_rest_steps(
+                        transition_gap,
+                        announce_rest=config.announce_rest,
+                        phrases=phrases,
+                        rest_warnings=config.rest_warnings,
+                        timing_mode=config.timing_mode,
+                        section=f"Transition to {next_name}",
                     )
                 )
     elif config.duration is not None:
@@ -348,6 +605,7 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
             rep_gap=config.rep_gap,
             set_gap=config.set_gap,
             set_start_gap=config.set_start_gap,
+            tempo=config.tempo,
         )
         plan.extend(
             _build_exercise_steps(
@@ -377,11 +635,15 @@ def format_workout_plan(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
     if config.title:
         lines.append(f"Title: {config.title}")
     if config.routine is not None:
-        lines.append(f"Routine: {config.routine.name} ({len(config.routine.exercises)} exercises)")
+        lines.append(
+            f"Routine: {config.routine.name} ({config.routine.total_exercise_count()} exercises)"
+        )
     elif config.duration is not None:
         lines.append(f"Intervals: {config.sets} x {config.duration:g}s")
     else:
         lines.append(f"Sets x reps: {config.sets} x {config.reps}")
+    if config.tempo is not None:
+        lines.append(f"Tempo: {config.tempo.label()}")
     lines.extend(
         [
             f"Timing mode: {config.timing_mode}",

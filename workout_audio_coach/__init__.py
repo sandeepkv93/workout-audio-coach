@@ -13,12 +13,15 @@ from workout_audio_coach.config import (
     SUPPORTED_OUTPUT_FORMATS,
     SUPPORTED_TIMING_MODES,
     SUPPORTED_TTS_BACKENDS,
+    TempoSpec,
     TimingMode,
     TTSBackendName,
     WorkoutConfig,
     WorkoutStep,
+    parse_tempo,
     resolve_output_format,
 )
+from workout_audio_coach.live import LiveCoachResult, run_live_coach
 from workout_audio_coach.localization import PhrasePack, get_phrase_pack
 from workout_audio_coach.pcm import PCMAudio, concatenate_pcm, mix_background_music
 from workout_audio_coach.planner import (
@@ -28,6 +31,7 @@ from workout_audio_coach.planner import (
 from workout_audio_coach.routines import (
     BUILTIN_PRESETS,
     PRESET_NAMES,
+    CircuitSpec,
     ExerciseSpec,
     WorkoutRoutine,
     get_preset_routine,
@@ -66,16 +70,19 @@ __all__ = [
     "SUPPORTED_TTS_BACKENDS",
     "CacheStats",
     "ChapterMarker",
+    "CircuitSpec",
     "EdgeTTSBackend",
     "EspeakBackend",
     "ExerciseSpec",
     "GTTSBackend",
+    "LiveCoachResult",
     "MacOSSayBackend",
     "PCMAudio",
     "PhrasePack",
     "PiperBackend",
     "TTSBackend",
     "TTSBackendName",
+    "TempoSpec",
     "TimelineEntry",
     "TimingMode",
     "ToneBackend",
@@ -104,5 +111,7 @@ __all__ = [
     "get_preset_routine",
     "load_routine_file",
     "mix_background_music",
+    "parse_tempo",
     "resolve_output_format",
+    "run_live_coach",
 ]

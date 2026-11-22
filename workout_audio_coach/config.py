@@ -32,6 +32,42 @@ StepKind = Literal[
 
 
 @dataclass(frozen=True)
+class TempoSpec:
+    eccentric: int
+    pause: int
+    concentric: int
+    top_pause: int = 0
+
+    def label(self) -> str:
+        if self.top_pause > 0:
+            return f"{self.eccentric}-{self.pause}-{self.concentric}-{self.top_pause}"
+        return f"{self.eccentric}-{self.pause}-{self.concentric}"
+
+
+def parse_tempo(raw: str) -> TempoSpec:
+    parts = [token.strip() for token in raw.split("-")]
+    if len(parts) not in (3, 4):
+        raise ValueError(
+            f"invalid tempo {raw!r}; expected ECC-PAUSE-CONC or ECC-PAUSE-CONC-TOP (e.g. '3-1-1')"
+        )
+    try:
+        values = [int(p) for p in parts]
+    except ValueError as exc:
+        raise ValueError(f"invalid tempo {raw!r}; all phases must be integers") from exc
+    if any(v < 0 for v in values):
+        raise ValueError(f"invalid tempo {raw!r}; phase durations must be 0 or greater")
+    if values[0] <= 0 or values[2] <= 0:
+        raise ValueError(f"invalid tempo {raw!r}; eccentric and concentric phases must be > 0")
+    top_pause = values[3] if len(values) == 4 else 0
+    return TempoSpec(
+        eccentric=values[0],
+        pause=values[1],
+        concentric=values[2],
+        top_pause=top_pause,
+    )
+
+
+@dataclass(frozen=True)
 class WorkoutConfig:
     reps: int
     sets: int
@@ -71,6 +107,9 @@ class WorkoutConfig:
     music_gain_db: float = -6.0
     duck_db: float = -12.0
     tts_workers: int = 4
+    tempo: TempoSpec | None = None
+    live: bool = False
+    live_silent: bool = False
 
 
 @dataclass(frozen=True)

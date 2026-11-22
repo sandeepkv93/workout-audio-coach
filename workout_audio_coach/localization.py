@@ -16,6 +16,9 @@ class PhrasePack:
     go: str = "Go"
     next_exercise: str = "Next: {name}"
     round_label: str = "Round {number}"
+    tempo_down: str = "Down"
+    tempo_hold: str = "Hold"
+    tempo_up: str = "Up"
 
     def format_set(self, number: int) -> str:
         return self.set_label.format(number=number)
@@ -43,6 +46,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="Vamos",
         next_exercise="Siguiente: {name}",
         round_label="Ronda {number}",
+        tempo_down="Baja",
+        tempo_hold="Mantén",
+        tempo_up="Sube",
     ),
     "fr": PhrasePack(
         starting_in="Début dans",
@@ -55,6 +61,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="Allez",
         next_exercise="Suivant : {name}",
         round_label="Tour {number}",
+        tempo_down="Descends",
+        tempo_hold="Tiens",
+        tempo_up="Monte",
     ),
     "de": PhrasePack(
         starting_in="Start in",
@@ -67,6 +76,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="Los",
         next_exercise="Als Nächstes: {name}",
         round_label="Runde {number}",
+        tempo_down="Runter",
+        tempo_hold="Halten",
+        tempo_up="Hoch",
     ),
     "it": PhrasePack(
         starting_in="Inizio tra",
@@ -79,6 +91,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="Via",
         next_exercise="Prossimo: {name}",
         round_label="Round {number}",
+        tempo_down="Giù",
+        tempo_hold="Tieni",
+        tempo_up="Su",
     ),
     "pt": PhrasePack(
         starting_in="Começando em",
@@ -91,6 +106,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="Vai",
         next_exercise="Próximo: {name}",
         round_label="Rodada {number}",
+        tempo_down="Desce",
+        tempo_hold="Segura",
+        tempo_up="Sobe",
     ),
     "hi": PhrasePack(
         starting_in="शुरू हो रहा है",
@@ -103,6 +121,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="शुरू करें",
         next_exercise="अगला: {name}",
         round_label="राउंड {number}",
+        tempo_down="नीचे",
+        tempo_hold="रोकें",
+        tempo_up="ऊपर",
     ),
     "ja": PhrasePack(
         starting_in="開始まで",
@@ -115,6 +136,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="スタート",
         next_exercise="次は {name}",
         round_label="ラウンド {number}",
+        tempo_down="下ろして",
+        tempo_hold="キープ",
+        tempo_up="上げて",
     ),
     "ko": PhrasePack(
         starting_in="시작까지",
@@ -127,6 +151,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="시작",
         next_exercise="다음 운동: {name}",
         round_label="라운드 {number}",
+        tempo_down="내려가세요",
+        tempo_hold="버티세요",
+        tempo_up="올라오세요",
     ),
     "zh": PhrasePack(
         starting_in="准备开始",
@@ -139,6 +166,9 @@ PHRASE_PACKS: dict[str, PhrasePack] = {
         go="开始",
         next_exercise="下一个：{name}",
         round_label="第 {number} 轮",
+        tempo_down="下放",
+        tempo_hold="保持",
+        tempo_up="推起",
     ),
 }
 
