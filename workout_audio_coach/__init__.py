@@ -11,6 +11,7 @@ from workout_audio_coach.config import (
     WorkoutStep,
     resolve_output_format,
 )
+from workout_audio_coach.localization import PhrasePack, get_phrase_pack
 from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
@@ -18,6 +19,7 @@ from workout_audio_coach.planner import (
 
 __all__ = [
     "SUPPORTED_OUTPUT_FORMATS",
+    "PhrasePack",
     "WorkoutConfig",
     "WorkoutStep",
     "__version__",
@@ -27,5 +29,6 @@ __all__ = [
     "create_combined_audio",
     "create_parser",
     "format_workout_plan",
+    "get_phrase_pack",
     "resolve_output_format",
 ]

@@ -24,6 +24,7 @@ from workout_audio_coach.config import (
     positive_int,
     resolve_output_format,
 )
+from workout_audio_coach.localization import parse_phrase_override
 from workout_audio_coach.planner import (
     build_workout_plan,
     format_workout_plan,
@@ -153,7 +154,14 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--language",
         default="en",
-        help="Language to use for gTTS speech synthesis.",
+        help="Language code for speech synthesis and localized cues (e.g. en, es, fr, de).",
+    )
+    parser.add_argument(
+        "--phrase",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override a spoken cue template (e.g. --phrase rest='Take a breather').",
     )
     parser.add_argument(
         "--cache-dir",
@@ -223,6 +231,9 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
     if args.output_file is None and not args.preview and args.script_file is None:
         raise ValueError("either --output-file or one of --preview/--script-file is required")
 
+    raw_phrases: Sequence[str] = getattr(args, "phrase", None) or ()
+    phrase_overrides = tuple(parse_phrase_override(item) for item in raw_phrases)
+
     return WorkoutConfig(
         reps=args.reps,
         sets=args.sets,
@@ -240,6 +251,7 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         script_file=args.script_file,
         tts_attempts=args.tts_attempts,
         tts_initial_backoff=args.tts_backoff,
+        phrase_overrides=phrase_overrides,
     )
 
 

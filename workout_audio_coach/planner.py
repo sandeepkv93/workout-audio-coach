@@ -5,13 +5,15 @@ from workout_audio_coach.config import (
     WorkoutConfig,
     WorkoutStep,
 )
+from workout_audio_coach.localization import get_phrase_pack
 
 
 def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
+    phrases = get_phrase_pack(config.language, dict(config.phrase_overrides))
     plan: list[WorkoutStep] = []
 
     if config.countdown > 0:
-        countdown_phrases = ["Starting in"] + [
+        countdown_phrases = [phrases.starting_in] + [
             str(number) for number in range(config.countdown, 0, -1)
         ]
         for index, phrase in enumerate(countdown_phrases):
@@ -21,18 +23,20 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
             plan.append(WorkoutStep(spoken_text=phrase, gap_after=gap_after))
 
     for set_number in range(1, config.sets + 1):
-        plan.append(WorkoutStep(spoken_text=f"Set {set_number}", gap_after=config.set_start_gap))
+        plan.append(
+            WorkoutStep(spoken_text=phrases.format_set(set_number), gap_after=config.set_start_gap)
+        )
         for rep_number in range(1, config.reps + 1):
             gap_after = config.rep_gap if rep_number < config.reps else 0.0
             plan.append(WorkoutStep(spoken_text=str(rep_number), gap_after=gap_after))
 
         if set_number < config.sets:
             if config.announce_rest:
-                plan.append(WorkoutStep(spoken_text="Rest", gap_after=config.set_gap))
+                plan.append(WorkoutStep(spoken_text=phrases.rest, gap_after=config.set_gap))
             elif config.set_gap > 0:
                 plan.append(WorkoutStep(spoken_text=None, gap_after=config.set_gap))
 
-    plan.append(WorkoutStep(spoken_text="Workout complete"))
+    plan.append(WorkoutStep(spoken_text=phrases.workout_complete))
     return plan
 
 

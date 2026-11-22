@@ -30,6 +30,7 @@ class WorkoutConfig:
     script_file: Path | None
     tts_attempts: int
     tts_initial_backoff: float
+    phrase_overrides: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
