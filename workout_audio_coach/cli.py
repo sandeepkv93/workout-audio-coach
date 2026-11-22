@@ -60,6 +60,7 @@ from workout_audio_coach.tts import (
     phrase_cache_path,
     synthesize_phrase,
 )
+from workout_audio_coach.web import export_workout_html
 
 LOGGER = logging.getLogger(__name__)
 
@@ -317,6 +318,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Export timestamped cue sheet (.vtt, .srt, .lrc, or .json).",
     )
     parser.add_argument(
+        "--export-html",
+        type=Path,
+        default=None,
+        help="Export a self-contained interactive HTML5 workout player & routine builder.",
+    )
+    parser.add_argument(
         "--title",
         default=None,
         help="Custom workout title used in preview output and audio metadata tags.",
@@ -422,17 +429,19 @@ def _resolve_routine(args: argparse.Namespace) -> WorkoutRoutine | None:
 
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
     timestamps_file: Path | None = getattr(args, "timestamps_file", None)
+    html_file: Path | None = getattr(args, "export_html", None)
     live_mode: bool = bool(getattr(args, "live", False))
     if (
         args.output_file is None
         and not args.preview
         and args.script_file is None
         and timestamps_file is None
+        and html_file is None
         and not live_mode
     ):
         raise ValueError(
-            "either --output-file or one of --preview/--script-file/--timestamps-file/--live "
-            "is required"
+            "either --output-file or one of "
+            "--preview/--script-file/--timestamps-file/--export-html/--live is required"
         )
 
     routine = _resolve_routine(args)
@@ -586,6 +595,7 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         tempo=tempo,
         live=live_mode,
         live_silent=bool(getattr(args, "live_silent", False)),
+        html_file=html_file,
     )
 
 
@@ -597,15 +607,22 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
     if config.live:
         run_live_coach(config, plan, silent=config.live_silent)
         if config.output_file is None:
+            estimated = build_estimated_timeline(plan)
             if config.timestamps_file is not None:
-                export_timeline(build_estimated_timeline(plan), config.timestamps_file)
+                export_timeline(estimated, config.timestamps_file)
+            if config.html_file is not None:
+                export_workout_html(config, plan, config.html_file, timeline=estimated)
             return None
 
     if config.output_file is None:
-        if config.timestamps_file is not None:
+        if config.timestamps_file is not None or config.html_file is not None:
             estimated = build_estimated_timeline(plan)
-            export_timeline(estimated, config.timestamps_file)
-            LOGGER.info("Estimated timestamps written to %s", config.timestamps_file)
+            if config.timestamps_file is not None:
+                export_timeline(estimated, config.timestamps_file)
+                LOGGER.info("Estimated timestamps written to %s", config.timestamps_file)
+            if config.html_file is not None:
+                export_workout_html(config, plan, config.html_file, timeline=estimated)
+                LOGGER.info("Interactive HTML player written to %s", config.html_file)
         LOGGER.info("Preview-only run completed without audio export.")
         return None
 
@@ -631,14 +648,18 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
             config.output_file,
         )
 
-    if config.timestamps_file is not None:
+    if config.timestamps_file is not None or config.html_file is not None:
         combined_audio, timeline = _audio.build_workout_audio_with_timeline(
             config,
             plan=plan,
             segment_loader=load_or_generate_segment,
         )
-        export_timeline(timeline, config.timestamps_file)
-        LOGGER.info("Exact timestamps written to %s", config.timestamps_file)
+        if config.timestamps_file is not None:
+            export_timeline(timeline, config.timestamps_file)
+            LOGGER.info("Exact timestamps written to %s", config.timestamps_file)
+        if config.html_file is not None:
+            export_workout_html(config, plan, config.html_file, timeline=timeline)
+            LOGGER.info("Interactive HTML player written to %s", config.html_file)
     else:
         combined_audio = build_workout_audio(config, plan=plan)
 

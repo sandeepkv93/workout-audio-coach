@@ -110,6 +110,7 @@ class WorkoutConfig:
     tempo: TempoSpec | None = None
     live: bool = False
     live_silent: bool = False
+    html_file: Path | None = None
 
 
 @dataclass(frozen=True)

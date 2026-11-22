@@ -60,6 +60,7 @@ from workout_audio_coach.tts import (
     format_cache_stats,
     get_cache_stats,
 )
+from workout_audio_coach.web import export_workout_html, render_workout_html
 
 __all__ = [
     "BUILTIN_PRESETS",
@@ -103,6 +104,7 @@ __all__ = [
     "create_parser",
     "create_tts_backend",
     "export_timeline",
+    "export_workout_html",
     "format_cache_stats",
     "format_duration",
     "format_workout_plan",
@@ -112,6 +114,7 @@ __all__ = [
     "load_routine_file",
     "mix_background_music",
     "parse_tempo",
+    "render_workout_html",
     "resolve_output_format",
     "run_live_coach",
 ]

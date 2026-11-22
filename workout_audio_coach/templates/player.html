@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__WORKOUT_TITLE__ — Workout Audio Coach</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-alt: #0b1220;
+    --border: #334155;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; }
+  .tabs {
+    display: inline-flex;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    gap: 4px;
+  }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 7px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--accent); color: #082f49; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .hidden { display: none !important; }
+  .player-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  @media (max-width: 720px) {
+    .player-grid { grid-template-columns: 1fr; text-align: center; }
+  }
+  .ring-wrap { position: relative; width: 220px; height: 220px; margin: 0 auto; }
+  .ring-wrap svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+  .ring-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    text-align: center;
+  }
+  .cue-now { font-size: 1.65rem; font-weight: 800; line-height: 1.15; }
+  .cue-timer { font-size: 1.1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .pill {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(56, 189, 248, 0.16);
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+  button.btn {
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 9px 16px;
+    border-radius: 9px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.btn.primary { background: var(--accent-2); border-color: var(--accent-2); color: #052e16; }
+  button.btn.accent { background: var(--accent); border-color: var(--accent); color: #082f49; }
+  button.btn:hover { filter: brightness(1.08); }
+  .toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .chapters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chapter-chip {
+    font-size: 0.78rem;
+    background: var(--panel-alt);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .chapter-chip.active { border-color: var(--accent); color: var(--accent); }
+  .step-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-alt);
+  }
+  .step-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .step-row:last-child { border-bottom: none; }
+  .step-row.active { background: rgba(56, 189, 248, 0.18); font-weight: 700; }
+  .step-meta { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.82rem; }
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  label.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  input, select {
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.92rem;
+  }
+  .ex-card {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .ex-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1 id="app-title">__WORKOUT_TITLE__</h1>
+      <div class="subtitle" id="app-summary">Interactive Workout Audio Coach</div>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-player" type="button">Player</button>
+      <button class="tab-btn" id="tab-builder" type="button">Routine Builder</button>
+    </div>
+  </header>
+
+  <section id="view-player">
+    <div class="panel player-grid">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#334155" stroke-width="8" />
+          <circle id="progress-ring" cx="60" cy="60" r="52" fill="none" stroke="#38bdf8"
+                  stroke-width="8" stroke-linecap="round"
+                  stroke-dasharray="326.73" stroke-dashoffset="326.73" />
+        </svg>
+        <div class="ring-center">
+          <div class="cue-now" id="cue-now">Ready</div>
+          <div class="cue-timer" id="cue-timer">0:00</div>
+        </div>
+      </div>
+      <div>
+        <div class="pill" id="section-pill">Workout</div>
+        <div class="subtitle" id="next-cue">Next: —</div>
+        <div class="controls">
+          <button class="btn primary" id="btn-play" type="button">Play</button>
+          <button class="btn" id="btn-skip" type="button">Skip Step</button>
+          <button class="btn" id="btn-reset" type="button">Reset</button>
+        </div>
+        <div class="toggles">
+          <label><input type="checkbox" id="opt-speech" checked /> Voice (Web Speech)</label>
+          <label><input type="checkbox" id="opt-beeps" checked /> Chimes</label>
+          <label>Rate <input type="range" id="opt-rate" min="0.7" max="1.4" step="0.1" value="1.0" /></label>
+        </div>
+        <div class="chapters" id="chapter-chips"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="subtitle" style="margin-bottom: 8px;">Workout Steps (click any step to jump)</div>
+      <div class="step-list" id="step-list"></div>
+    </div>
+  </section>
+
+  <section id="view-builder" class="hidden">
+    <div class="panel">
+      <div class="form-grid">
+        <label class="field">Routine Name<input id="b-name" type="text" /></label>
+        <label class="field">Countdown (s)<input id="b-countdown" type="number" min="0" value="3" /></label>
+        <label class="field">Rest Warnings<input id="b-warnings" type="text" placeholder="10,3,2,1" /></label>
+        <label class="field">Timing Mode
+          <select id="b-timing">
+            <option value="gap">gap</option>
+            <option value="cadence">cadence</option>
+          </select>
+        </label>
+      </div>
+      <div id="builder-exercises"></div>
+      <div class="controls">
+        <button class="btn" id="btn-add-ex" type="button">+ Add Exercise</button>
+        <button class="btn accent" id="btn-apply" type="button">Load into Player</button>
+        <button class="btn" id="btn-download" type="button">Download Routine JSON</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script id="workout-data" type="application/json">__WORKOUT_DATA_JSON__</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById("workout-data").textContent);
+  const state = {
+    steps: data.steps,
+    chapters: data.chapters,
+    title: data.title,
+    language: data.language || "en",
+    idx: 0,
+    remaining: 0,
+    running: false,
+    timerId: null,
+    lastTick: 0,
+    audioCtx: null,
+  };
+  const builderExercises = (data.exercises || []).map((e) => ({ ...e }));
+
+  const elTitle = document.getElementById("app-title");
+  const elSummary = document.getElementById("app-summary");
+  const elCueNow = document.getElementById("cue-now");
+  const elCueTimer = document.getElementById("cue-timer");
+  const elSection = document.getElementById("section-pill");
+  const elNext = document.getElementById("next-cue");
+  const elRing = document.getElementById("progress-ring");
+  const elList = document.getElementById("step-list");
+  const elChapters = document.getElementById("chapter-chips");
+  const btnPlay = document.getElementById("btn-play");
+  const optSpeech = document.getElementById("opt-speech");
+  const optBeeps = document.getElementById("opt-beeps");
+  const optRate = document.getElementById("opt-rate");
+  const CIRC = 2 * Math.PI * 52;
+
+  function fmt(sec) {
+    const whole = Math.max(0, Math.ceil(sec));
+    return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0");
+  }
+
+  function playTone(kind) {
+    if (!optBeeps.checked) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!state.audioCtx) state.audioCtx = new Ctx();
+      const ctx = state.audioCtx;
+      const freq = kind === "rest" ? 440 : kind === "complete" ? 784 : kind === "set" ? 659 : 587;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (_) {}
+  }
+
+  function speak(text) {
+    if (!optSpeech.checked || !text || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = state.language;
+      u.rate = parseFloat(optRate.value) || 1.0;
+      window.speechSynthesis.speak(u);
+    } catch (_) {}
+  }
+
+  function renderAll() {
+    const totalSec = state.steps.reduce((acc, s) => acc + s.duration_seconds, 0);
+    elTitle.textContent = state.title;
+    elSummary.textContent = `${state.steps.length} steps · Est. ${fmt(totalSec)}`;
+
+    elChapters.innerHTML = "";
+    const seen = new Set();
+    state.steps.forEach((step, idx) => {
+      if (seen.has(step.section)) return;
+      seen.add(step.section);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chapter-chip" + (state.steps[state.idx]?.section === step.section ? " active" : "");
+      chip.textContent = step.section;
+      chip.onclick = () => jumpTo(idx);
+      elChapters.appendChild(chip);
+    });
+
+    elList.innerHTML = "";
+    state.steps.forEach((step, idx) => {
+      const row = document.createElement("div");
+      row.className = "step-row" + (idx === state.idx ? " active" : "");
+      const left = document.createElement("span");
+      left.textContent = `${String(idx + 1).padStart(2, "0")}. ${step.text || "[silence]"}`;
+      const right = document.createElement("span");
+      right.className = "step-meta";
+      right.textContent = `${step.section} · ${step.duration_seconds.toFixed(1)}s`;
+      row.append(left, right);
+      row.onclick = () => jumpTo(idx);
+      elList.appendChild(row);
+    });
+    updateDisplay();
+  }
+
+  function updateDisplay() {
+    const step = state.steps[state.idx];
+    if (!step) {
+      elCueNow.textContent = "Done!";
+      elCueTimer.textContent = "0:00";
+      elRing.style.strokeDashoffset = "0";
+      return;
+    }
+    elCueNow.textContent = step.text || "Rest";
+    elCueTimer.textContent = fmt(state.remaining);
+    elSection.textContent = step.section;
+    const next = state.steps[state.idx + 1];
+    elNext.textContent = next ? `Next: ${next.text || "[silence]"}` : "Final step";
+    const frac = state.steps.length
+      ? (state.idx + (1 - state.remaining / Math.max(0.1, step.duration_seconds))) / state.steps.length
+      : 0;
+    elRing.style.strokeDashoffset = String(CIRC * (1 - Math.max(0, Math.min(1, frac))));
+  }
+
+  function enterStep(idx) {
+    state.idx = idx;
+    const step = state.steps[idx];
+    if (!step) { stop(); updateDisplay(); return; }
+    state.remaining = step.duration_seconds;
+    if (["countdown", "set", "exercise", "rest", "complete"].includes(step.kind)) {
+      playTone(step.kind);
+    }
+    if (step.text) speak(step.text);
+    renderAll();
+  }
+
+  function jumpTo(idx) {
+    state.idx = idx;
+    state.remaining = state.steps[idx]?.duration_seconds || 0;
+    if (state.running) enterStep(idx);
+    else renderAll();
+  }
+
+  function tick() {
+    if (!state.running) return;
+    const now = performance.now();
+    const dt = (now - state.lastTick) / 1000;
+    state.lastTick = now;
+    state.remaining -= dt;
+    if (state.remaining <= 0) {
+      if (state.idx + 1 < state.steps.length) enterStep(state.idx + 1);
+      else { state.idx = state.steps.length; stop(); updateDisplay(); return; }
+    }
+    updateDisplay();
+    state.timerId = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (state.idx >= state.steps.length) state.idx = 0;
+    state.running = true;
+    btnPlay.textContent = "Pause";
+    state.lastTick = performance.now();
+    enterStep(state.idx);
+    state.timerId = requestAnimationFrame(tick);
+  }
+
+  function stop() {
+    state.running = false;
+    btnPlay.textContent = "Play";
+    if (state.timerId) cancelAnimationFrame(state.timerId);
+    state.timerId = null;
+  }
+
+  btnPlay.onclick = () => (state.running ? stop() : start());
+  document.getElementById("btn-skip").onclick = () => {
+    if (state.idx + 1 < state.steps.length) jumpTo(state.idx + 1);
+  };
+  document.getElementById("btn-reset").onclick = () => {
+    stop();
+    state.idx = 0;
+    state.remaining = state.steps[0]?.duration_seconds || 0;
+    renderAll();
+  };
+
+  const tabPlayer = document.getElementById("tab-player");
+  const tabBuilder = document.getElementById("tab-builder");
+  const viewPlayer = document.getElementById("view-player");
+  const viewBuilder = document.getElementById("view-builder");
+  tabPlayer.onclick = () => {
+    tabPlayer.classList.add("active"); tabBuilder.classList.remove("active");
+    viewPlayer.classList.remove("hidden"); viewBuilder.classList.add("hidden");
+  };
+  tabBuilder.onclick = () => {
+    tabBuilder.classList.add("active"); tabPlayer.classList.remove("active");
+    viewBuilder.classList.remove("hidden"); viewPlayer.classList.add("hidden");
+  };
+
+  document.getElementById("b-name").value = data.title || "Custom Workout";
+  document.getElementById("b-countdown").value = String(data.countdown ?? 3);
+  document.getElementById("b-warnings").value = (data.rest_warnings || []).join(",");
+  document.getElementById("b-timing").value = data.timing_mode || "gap";
+
+  function renderBuilder() {
+    const wrap = document.getElementById("builder-exercises");
+    wrap.innerHTML = "";
+    builderExercises.forEach((ex, i) => {
+      const card = document.createElement("div");
+      card.className = "ex-card";
+      card.innerHTML = `
+        <div class="ex-head">
+          <strong>Exercise ${i + 1}</strong>
+          <button class="btn" type="button" data-del="${i}">Remove</button>
+        </div>
+        <div class="form-grid">
+          <label class="field">Name<input data-k="name" data-i="${i}" /></label>
+          <label class="field">Type
+            <select data-k="mode" data-i="${i}">
+              <option value="reps">Reps</option>
+              <option value="duration">Timed (s)</option>
+            </select>
+          </label>
+          <label class="field">Sets<input type="number" min="1" data-k="sets" data-i="${i}" /></label>
+          <label class="field">${ex.mode === "reps" ? "Reps" : "Duration (s)"}
+            <input type="number" min="1" data-k="${ex.mode === "reps" ? "reps" : "duration"}" data-i="${i}" />
+          </label>
+          <label class="field">Set Gap (s)<input type="number" min="0" step="1" data-k="set_gap" data-i="${i}" /></label>
+        </div>`;
+      card.querySelector('[data-k="name"]').value = ex.name;
+      card.querySelector('[data-k="mode"]').value = ex.mode;
+      card.querySelector('[data-k="sets"]').value = String(ex.sets);
+      card.querySelector(`[data-k="${ex.mode === "reps" ? "reps" : "duration"}"]`).value =
+        String(ex.mode === "reps" ? ex.reps : ex.duration);
+      card.querySelector('[data-k="set_gap"]').value = String(ex.set_gap);
+      wrap.appendChild(card);
+    });
+    wrap.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.onclick = () => { builderExercises.splice(Number(btn.dataset.del), 1); renderBuilder(); };
+    });
+    wrap.querySelectorAll("[data-k]").forEach((inp) => {
+      inp.onchange = () => {
+        const i = Number(inp.dataset.i);
+        const k = inp.dataset.k;
+        builderExercises[i][k] = inp.type === "number" ? Number(inp.value) : inp.value;
+        if (k === "mode") renderBuilder();
+      };
+    });
+  }
+
+  function buildRoutineObject() {
+    const rw = document.getElementById("b-warnings").value
+      .split(",").map((v) => parseInt(v.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0);
+    return {
+      name: document.getElementById("b-name").value.trim() || "Custom Workout",
+      countdown: Math.max(0, parseInt(document.getElementById("b-countdown").value, 10) || 0),
+      timing_mode: document.getElementById("b-timing").value,
+      rest_warnings: rw,
+      exercises: builderExercises.map((ex) => {
+        const item = {
+          name: ex.name || "Exercise",
+          sets: Math.max(1, ex.sets || 1),
+          set_gap: Math.max(0, ex.set_gap || 0),
+        };
+        if (ex.mode === "duration") item.duration = Math.max(1, ex.duration || 20);
+        else { item.reps = Math.max(1, ex.reps || 10); item.rep_gap = Math.max(0, ex.rep_gap ?? 1.0); }
+        return item;
+      }),
+    };
+  }
+
+  function compileStepsFromBuilder() {
+    const routine = buildRoutineObject();
+    const steps = [];
+    let t = 0;
+    const pushStep = (text, dur, kind, section) => {
+      steps.push({
+        index: steps.length + 1,
+        text,
+        kind,
+        section,
+        start_seconds: t,
+        end_seconds: t + dur,
+        duration_seconds: dur,
+      });
+      t += dur;
+    };
+    if (routine.countdown > 0) {
+      pushStep("Starting in", 1.2, "countdown", "Countdown");
+      for (let c = routine.countdown; c >= 1; c--) pushStep(String(c), 1.0, "countdown", "Countdown");
+    }
+    routine.exercises.forEach((ex, exIdx) => {
+      for (let s = 1; s <= ex.sets; s++) {
+        const sec = `${ex.name} - Set ${s}`;
+        pushStep(s === 1 ? `${ex.name}, Set 1` : `Set ${s}`, 1.4, "set", sec);
+        if (ex.duration) pushStep("Go", ex.duration, "cue", sec);
+        else {
+          for (let r = 1; r <= ex.reps; r++) {
+            pushStep(String(r), 0.5 + (r < ex.reps ? ex.rep_gap : 0), "rep", sec);
+          }
+        }
+        if (s < ex.sets) pushStep("Rest", Math.max(1, ex.set_gap), "rest", `Rest after ${sec}`);
+      }
+      if (exIdx + 1 < routine.exercises.length) pushStep("Rest", 20, "rest", "Transition");
+    });
+    pushStep("Workout complete", 1.5, "complete", "Complete");
+    return { title: routine.name, steps };
+  }
+
+  document.getElementById("btn-add-ex").onclick = () => {
+    builderExercises.push({
+      name: "New Exercise", mode: "reps", sets: 3, reps: 10, duration: 30, rep_gap: 1.0, set_gap: 30,
+    });
+    renderBuilder();
+  };
+  document.getElementById("btn-apply").onclick = () => {
+    stop();
+    const built = compileStepsFromBuilder();
+    state.title = built.title;
+    state.steps = built.steps;
+    state.idx = 0;
+    state.remaining = state.steps[0]?.duration_seconds || 0;
+    tabPlayer.click();
+    renderAll();
+  };
+  document.getElementById("btn-download").onclick = () => {
+    const routine = buildRoutineObject();
+    const blob = new Blob([JSON.stringify(routine, null, 2) + "\n"], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (routine.name.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "workout") + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  state.remaining = state.steps[0]?.duration_seconds || 0;
+  renderAll();
+  renderBuilder();
+})();
+</script>
+</body>
+</html>
