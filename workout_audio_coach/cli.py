@@ -1,98 +1,109 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
-import os
-import sys
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from io import BytesIO
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import BinaryIO, Protocol
 
 from gtts import gTTS
 from pydub import AudioSegment
 
+from workout_audio_coach import audio as _audio
+from workout_audio_coach import tts as _tts
+from workout_audio_coach._version import __version__
+from workout_audio_coach.config import (
+    DEFAULT_COUNTDOWN_GAP_SECONDS,
+    DEFAULT_SET_START_GAP_SECONDS,
+    SUPPORTED_OUTPUT_FORMATS,
+    WorkoutConfig,
+    WorkoutStep,
+    default_cache_dir,
+    non_negative_float,
+    non_negative_int,
+    positive_float,
+    positive_int,
+    resolve_output_format,
+)
+from workout_audio_coach.planner import (
+    build_workout_plan,
+    format_workout_plan,
+    maybe_write_script_preview,
+)
+from workout_audio_coach.tts import (
+    TTSFactory,
+    TTSWriter,
+    audio_segment_from_mp3_bytes,
+    phrase_cache_path,
+    synthesize_phrase,
+)
 
-class TTSWriter(Protocol):
-    def write_to_fp(self, fp: BinaryIO) -> None: ...
-
-
-class TTSFactory(Protocol):
-    def __call__(self, *, text: str, lang: str) -> TTSWriter: ...
-
-
-__version__ = "0.2.0"
 LOGGER = logging.getLogger(__name__)
-DEFAULT_SET_START_GAP_SECONDS = 1.0
-DEFAULT_COUNTDOWN_GAP_SECONDS = 1.0
-SUPPORTED_OUTPUT_FORMATS = ("mp3", "wav")
+
+__all__ = [
+    "DEFAULT_COUNTDOWN_GAP_SECONDS",
+    "DEFAULT_SET_START_GAP_SECONDS",
+    "SUPPORTED_OUTPUT_FORMATS",
+    "TTSFactory",
+    "TTSWriter",
+    "WorkoutConfig",
+    "WorkoutStep",
+    "__version__",
+    "audio_segment_from_mp3_bytes",
+    "build_config",
+    "build_workout_audio",
+    "build_workout_plan",
+    "create_combined_audio",
+    "create_parser",
+    "default_cache_dir",
+    "format_workout_plan",
+    "load_or_generate_segment",
+    "main",
+    "maybe_write_script_preview",
+    "non_negative_float",
+    "non_negative_int",
+    "phrase_cache_path",
+    "positive_float",
+    "positive_int",
+    "resolve_output_format",
+    "synthesize_phrase",
+]
 
 
-@dataclass(frozen=True)
-class WorkoutConfig:
-    reps: int
-    sets: int
-    rep_gap: float
-    set_gap: float
-    output_file: Path | None
-    output_format: str | None
-    language: str
-    cache_dir: Path
-    use_cache: bool
-    countdown: int
-    announce_rest: bool
-    set_start_gap: float
-    preview: bool
-    script_file: Path | None
-    tts_attempts: int
-    tts_initial_backoff: float
+def load_or_generate_segment(
+    phrase: str,
+    language: str,
+    cache_dir: Path,
+    *,
+    use_cache: bool = True,
+    attempts: int = 3,
+    initial_backoff_seconds: float = 1.0,
+    tts_factory: TTSFactory = gTTS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> AudioSegment:
+    return _tts.load_or_generate_segment(
+        phrase,
+        language,
+        cache_dir,
+        use_cache=use_cache,
+        attempts=attempts,
+        initial_backoff_seconds=initial_backoff_seconds,
+        tts_factory=tts_factory,
+        sleep_fn=sleep_fn,
+        audio_decoder=audio_segment_from_mp3_bytes,
+    )
 
 
-@dataclass(frozen=True)
-class WorkoutStep:
-    spoken_text: str | None
-    gap_after: float = 0.0
-
-
-def positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be greater than 0")
-    return parsed
-
-
-def non_negative_int(value: str) -> int:
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be 0 or greater")
-    return parsed
-
-
-def positive_float(value: str) -> float:
-    parsed = float(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be greater than 0")
-    return parsed
-
-
-def non_negative_float(value: str) -> float:
-    parsed = float(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be 0 or greater")
-    return parsed
-
-
-def default_cache_dir() -> Path:
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "workout-audio-coach"
-    if os.name == "nt":
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            return Path(local_app_data) / "workout-audio-coach"
-    return Path.home() / ".cache" / "workout-audio-coach"
+def build_workout_audio(
+    config: WorkoutConfig,
+    *,
+    plan: Sequence[WorkoutStep] | None = None,
+) -> AudioSegment:
+    return _audio.build_workout_audio(
+        config,
+        plan=plan,
+        segment_loader=load_or_generate_segment,
+    )
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -206,21 +217,6 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_output_format(output_file: Path | None, explicit_format: str | None) -> str | None:
-    if output_file is None:
-        if explicit_format:
-            raise ValueError("--format requires --output-file")
-        return None
-
-    if explicit_format:
-        return explicit_format
-
-    suffix = output_file.suffix.lower().lstrip(".")
-    if suffix in SUPPORTED_OUTPUT_FORMATS:
-        return suffix
-    return "mp3"
-
-
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
     if args.output_file is None and not args.preview and args.script_file is None:
         raise ValueError("either --output-file or one of --preview/--script-file is required")
@@ -245,167 +241,6 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
     )
 
 
-def phrase_cache_path(cache_dir: Path, phrase: str, language: str) -> Path:
-    digest = hashlib.sha256(f"{language}\0{phrase}".encode()).hexdigest()
-    return cache_dir / f"{digest}.mp3"
-
-
-def audio_segment_from_mp3_bytes(audio_bytes: bytes) -> AudioSegment:
-    return AudioSegment.from_file(BytesIO(audio_bytes), format="mp3")
-
-
-def synthesize_phrase(
-    phrase: str,
-    language: str,
-    *,
-    attempts: int = 3,
-    initial_backoff_seconds: float = 1.0,
-    tts_factory: TTSFactory = gTTS,
-    sleep_fn: Callable[[float], None] = time.sleep,
-) -> bytes:
-    delay = initial_backoff_seconds
-    last_error: Exception | None = None
-
-    for attempt in range(1, attempts + 1):
-        try:
-            buffer = BytesIO()
-            tts_factory(text=phrase, lang=language).write_to_fp(buffer)
-            return buffer.getvalue()
-        except Exception as exc:  # pragma: no cover - network/library failure path
-            last_error = exc
-            if attempt == attempts:
-                break
-            LOGGER.warning(
-                "Speech synthesis failed for %r on attempt %s/%s; retrying in %.1fs",
-                phrase,
-                attempt,
-                attempts,
-                delay,
-            )
-            sleep_fn(delay)
-            delay *= 2
-
-    raise RuntimeError(f"Unable to synthesize speech for {phrase!r}") from last_error
-
-
-def load_or_generate_segment(
-    phrase: str,
-    language: str,
-    cache_dir: Path,
-    *,
-    use_cache: bool = True,
-    attempts: int = 3,
-    initial_backoff_seconds: float = 1.0,
-    tts_factory: TTSFactory = gTTS,
-    sleep_fn: Callable[[float], None] = time.sleep,
-) -> AudioSegment:
-    cache_path = phrase_cache_path(cache_dir, phrase, language)
-    if use_cache and cache_path.exists():
-        LOGGER.debug("Loaded cached speech for %r from %s", phrase, cache_path)
-        return audio_segment_from_mp3_bytes(cache_path.read_bytes())
-
-    audio_bytes = synthesize_phrase(
-        phrase,
-        language,
-        attempts=attempts,
-        initial_backoff_seconds=initial_backoff_seconds,
-        tts_factory=tts_factory,
-        sleep_fn=sleep_fn,
-    )
-    if use_cache:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(audio_bytes)
-        LOGGER.debug("Cached speech for %r at %s", phrase, cache_path)
-    return audio_segment_from_mp3_bytes(audio_bytes)
-
-
-def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
-    plan: list[WorkoutStep] = []
-
-    if config.countdown > 0:
-        countdown_phrases = ["Starting in"] + [
-            str(number) for number in range(config.countdown, 0, -1)
-        ]
-        for index, phrase in enumerate(countdown_phrases):
-            gap_after = DEFAULT_COUNTDOWN_GAP_SECONDS
-            if index == len(countdown_phrases) - 1:
-                gap_after = 0.0
-            plan.append(WorkoutStep(spoken_text=phrase, gap_after=gap_after))
-
-    for set_number in range(1, config.sets + 1):
-        plan.append(WorkoutStep(spoken_text=f"Set {set_number}", gap_after=config.set_start_gap))
-        for rep_number in range(1, config.reps + 1):
-            gap_after = config.rep_gap if rep_number < config.reps else 0.0
-            plan.append(WorkoutStep(spoken_text=str(rep_number), gap_after=gap_after))
-
-        if set_number < config.sets:
-            if config.announce_rest:
-                plan.append(WorkoutStep(spoken_text="Rest", gap_after=config.set_gap))
-            elif config.set_gap > 0:
-                plan.append(WorkoutStep(spoken_text=None, gap_after=config.set_gap))
-
-    plan.append(WorkoutStep(spoken_text="Workout complete"))
-    return plan
-
-
-def format_workout_plan(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
-    spoken_cues = sum(1 for step in plan if step.spoken_text is not None)
-    total_silence = sum(step.gap_after for step in plan)
-    lines = [
-        "Workout Audio Coach plan",
-        f"Sets x reps: {config.sets} x {config.reps}",
-        f"Spoken cues: {spoken_cues}",
-        f"Programmed silence: {total_silence:g}s",
-        "",
-    ]
-
-    for index, step in enumerate(plan, start=1):
-        label = step.spoken_text or "[silence]"
-        if step.gap_after > 0:
-            lines.append(f"{index:02d}. {label} [gap {step.gap_after:g}s]")
-        else:
-            lines.append(f"{index:02d}. {label}")
-
-    return "\n".join(lines)
-
-
-def build_workout_audio(config: WorkoutConfig) -> AudioSegment:
-    plan = build_workout_plan(config)
-    unique_phrases = list(
-        dict.fromkeys(step.spoken_text for step in plan if step.spoken_text is not None)
-    )
-    rendered_phrases = {
-        phrase: load_or_generate_segment(
-            phrase,
-            config.language,
-            config.cache_dir,
-            use_cache=config.use_cache,
-            attempts=config.tts_attempts,
-            initial_backoff_seconds=config.tts_initial_backoff,
-        )
-        for phrase in unique_phrases
-    }
-
-    combined = AudioSegment.empty()
-    for step in plan:
-        if step.spoken_text is not None:
-            combined += rendered_phrases[step.spoken_text]
-        if step.gap_after > 0:
-            combined += AudioSegment.silent(duration=int(step.gap_after * 1000))
-
-    return combined
-
-
-def maybe_write_script_preview(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
-    preview_text = format_workout_plan(config, plan)
-    if config.preview:
-        print(preview_text)
-    if config.script_file is not None:
-        config.script_file.parent.mkdir(parents=True, exist_ok=True)
-        config.script_file.write_text(preview_text + "\n", encoding="utf-8")
-    return preview_text
-
-
 def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | None:
     config = args if isinstance(args, WorkoutConfig) else build_config(args)
     plan = build_workout_plan(config)
@@ -421,16 +256,16 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
         config.reps,
         config.output_file,
     )
-    combined_audio = build_workout_audio(config)
+    combined_audio = build_workout_audio(config, plan=plan)
     config.output_file.parent.mkdir(parents=True, exist_ok=True)
     combined_audio.export(config.output_file, format=config.output_format)
     LOGGER.info("Audio file created: %s", config.output_file)
     return config.output_file
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = create_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
