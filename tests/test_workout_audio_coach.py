@@ -2,6 +2,7 @@ import argparse
 import tempfile
 import unittest
 from pathlib import Path
+from typing import BinaryIO
 from unittest.mock import MagicMock, patch
 
 from pydub import AudioSegment
@@ -10,25 +11,25 @@ import workout_audio_coach.cli as src
 
 
 class FakeTTS:
-    def __init__(self, text: str, lang: str):
-        self.payload = f"{lang}:{text}".encode("utf-8")
+    def __init__(self, text: str, lang: str) -> None:
+        self.payload = f"{lang}:{text}".encode()
 
-    def write_to_fp(self, buffer) -> None:
+    def write_to_fp(self, buffer: BinaryIO) -> None:
         buffer.write(self.payload)
 
 
 class FlakyTTS:
     attempts = 0
 
-    def __init__(self, text: str, lang: str):
+    def __init__(self, text: str, lang: str) -> None:
         self.text = text
         self.lang = lang
 
-    def write_to_fp(self, buffer) -> None:
+    def write_to_fp(self, buffer: BinaryIO) -> None:
         type(self).attempts += 1
         if type(self).attempts < 3:
             raise RuntimeError("temporary failure")
-        buffer.write(f"{self.lang}:{self.text}".encode("utf-8"))
+        buffer.write(f"{self.lang}:{self.text}".encode())
 
 
 class ParserTests(unittest.TestCase):
@@ -324,7 +325,7 @@ class PreviewOutputTests(unittest.TestCase):
 class SynthesisTests(unittest.TestCase):
     def test_synthesize_phrase_retries_before_success(self) -> None:
         FlakyTTS.attempts = 0
-        sleep_calls = []
+        sleep_calls: list[float] = []
 
         result = src.synthesize_phrase(
             "Set 1",

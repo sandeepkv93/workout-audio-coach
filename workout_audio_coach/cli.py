@@ -6,13 +6,22 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable
+from typing import BinaryIO, Protocol
 
 from gtts import gTTS
 from pydub import AudioSegment
+
+
+class TTSWriter(Protocol):
+    def write_to_fp(self, fp: BinaryIO) -> None: ...
+
+
+class TTSFactory(Protocol):
+    def __call__(self, *, text: str, lang: str) -> TTSWriter: ...
 
 
 __version__ = "0.2.0"
@@ -87,9 +96,7 @@ def default_cache_dir() -> Path:
 
 
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Generate or preview a guided workout audio file."
-    )
+    parser = argparse.ArgumentParser(description="Generate or preview a guided workout audio file.")
     parser.add_argument(
         "--reps",
         type=positive_int,
@@ -216,9 +223,7 @@ def resolve_output_format(output_file: Path | None, explicit_format: str | None)
 
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
     if args.output_file is None and not args.preview and args.script_file is None:
-        raise ValueError(
-            "either --output-file or one of --preview/--script-file is required"
-        )
+        raise ValueError("either --output-file or one of --preview/--script-file is required")
 
     return WorkoutConfig(
         reps=args.reps,
@@ -241,7 +246,7 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
 
 
 def phrase_cache_path(cache_dir: Path, phrase: str, language: str) -> Path:
-    digest = hashlib.sha256(f"{language}\0{phrase}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{language}\0{phrase}".encode()).hexdigest()
     return cache_dir / f"{digest}.mp3"
 
 
@@ -255,11 +260,11 @@ def synthesize_phrase(
     *,
     attempts: int = 3,
     initial_backoff_seconds: float = 1.0,
-    tts_factory=gTTS,
-    sleep_fn=time.sleep,
+    tts_factory: TTSFactory = gTTS,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> bytes:
     delay = initial_backoff_seconds
-    last_error = None
+    last_error: Exception | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -291,8 +296,8 @@ def load_or_generate_segment(
     use_cache: bool = True,
     attempts: int = 3,
     initial_backoff_seconds: float = 1.0,
-    tts_factory=gTTS,
-    sleep_fn=time.sleep,
+    tts_factory: TTSFactory = gTTS,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> AudioSegment:
     cache_path = phrase_cache_path(cache_dir, phrase, language)
     if use_cache and cache_path.exists():
@@ -434,4 +439,3 @@ def main() -> None:
         create_combined_audio(args)
     except ValueError as exc:
         parser.error(str(exc))
-
