@@ -9,6 +9,7 @@ from workout_audio_coach.config import (
 )
 from workout_audio_coach.localization import PhrasePack, get_phrase_pack
 from workout_audio_coach.routines import ExerciseSpec
+from workout_audio_coach.timeline import build_estimated_timeline, format_duration
 
 
 def build_rest_steps(
@@ -371,7 +372,10 @@ def build_workout_plan(config: WorkoutConfig) -> list[WorkoutStep]:
 def format_workout_plan(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
     spoken_cues = sum(1 for step in plan if step.spoken_text is not None)
     total_silence = sum(step.gap_after for step in plan)
+    estimated = build_estimated_timeline(plan)
     lines = ["Workout Audio Coach plan"]
+    if config.title:
+        lines.append(f"Title: {config.title}")
     if config.routine is not None:
         lines.append(f"Routine: {config.routine.name} ({len(config.routine.exercises)} exercises)")
     elif config.duration is not None:
@@ -383,6 +387,7 @@ def format_workout_plan(config: WorkoutConfig, plan: list[WorkoutStep]) -> str:
             f"Timing mode: {config.timing_mode}",
             f"Spoken cues: {spoken_cues}",
             f"Programmed silence: {total_silence:g}s",
+            f"Estimated duration: {format_duration(estimated.total_seconds)}",
             "",
         ]
     )

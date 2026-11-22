@@ -63,6 +63,8 @@ class WorkoutConfig:
     beep_cues: bool = False
     duration: float | None = None
     routine: WorkoutRoutine | None = None
+    timestamps_file: Path | None = None
+    title: str | None = None
 
 
 @dataclass(frozen=True)

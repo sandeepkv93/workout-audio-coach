@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from workout_audio_coach.config import StepKind, WorkoutConfig, WorkoutStep
 from workout_audio_coach.planner import build_workout_plan
+from workout_audio_coach.timeline import TimelineEntry, WorkoutTimeline, build_chapters
 from workout_audio_coach.tones import cue_tone_wav_bytes, wav_bytes_to_segment
 from workout_audio_coach.tts import (
     TTSBackend,
@@ -80,13 +81,13 @@ def _uses_custom_backend_settings(config: WorkoutConfig) -> bool:
     )
 
 
-def build_workout_audio(
+def build_workout_audio_with_timeline(
     config: WorkoutConfig,
     *,
     plan: Sequence[WorkoutStep] | None = None,
     segment_loader: SegmentLoader | None = None,
     backend: TTSBackend | None = None,
-) -> AudioSegment:
+) -> tuple[AudioSegment, WorkoutTimeline]:
     from pydub import AudioSegment
 
     resolved_plan = list(plan) if plan is not None else build_workout_plan(config)
@@ -158,7 +159,11 @@ def build_workout_audio(
 
     beep_cache: dict[StepKind, AudioSegment] = {}
     parts: list[AudioSegment] = []
-    for step in resolved_plan:
+    entries: list[TimelineEntry] = []
+    cursor_ms = 0
+
+    for index, step in enumerate(resolved_plan, start=1):
+        step_start_ms = cursor_ms
         spoken_ms = 0
         if config.beep_cues and resolved_backend.name != "tone" and step.kind in BEEP_TRIGGER_KINDS:
             if step.kind not in beep_cache:
@@ -183,17 +188,74 @@ def build_workout_audio(
         if duration_ms > 0:
             parts.append(AudioSegment.silent(duration=duration_ms))
 
-    return concatenate_segments(parts)
+        cursor_ms += spoken_ms + duration_ms
+        entries.append(
+            TimelineEntry(
+                index=index,
+                start_seconds=round(step_start_ms / 1000.0, 3),
+                end_seconds=round(cursor_ms / 1000.0, 3),
+                spoken_text=step.spoken_text,
+                kind=step.kind,
+                section=step.section,
+            )
+        )
+
+    combined = concatenate_segments(parts)
+    timeline = WorkoutTimeline(
+        entries=tuple(entries),
+        chapters=build_chapters(entries),
+        total_seconds=round(cursor_ms / 1000.0, 3),
+        is_estimated=False,
+    )
+    return combined, timeline
+
+
+def build_workout_audio(
+    config: WorkoutConfig,
+    *,
+    plan: Sequence[WorkoutStep] | None = None,
+    segment_loader: SegmentLoader | None = None,
+    backend: TTSBackend | None = None,
+) -> AudioSegment:
+    combined, _ = build_workout_audio_with_timeline(
+        config,
+        plan=plan,
+        segment_loader=segment_loader,
+        backend=backend,
+    )
+    return combined
+
+
+def build_audio_metadata_tags(config: WorkoutConfig) -> dict[str, str]:
+    if config.title:
+        title = config.title
+    elif config.routine is not None:
+        title = config.routine.name
+    elif config.duration is not None:
+        title = f"{config.sets}x{config.duration:g}s Interval Workout"
+    else:
+        title = f"{config.sets}x{config.reps} Workout"
+    return {
+        "title": title,
+        "artist": "Workout Audio Coach",
+        "album": config.routine.name if config.routine is not None else "Workout Audio Coach",
+        "genre": "Workout",
+    }
 
 
 def export_workout_audio(
     audio: AudioSegment,
     output_file: Path,
     output_format: str,
+    *,
+    tags: Mapping[str, str] | None = None,
 ) -> Path:
     if output_format != "wav":
         ensure_ffmpeg_available()
     output_file.parent.mkdir(parents=True, exist_ok=True)
     export_format = "ipod" if output_format == "m4a" else output_format
-    audio.export(output_file, format=export_format)
+    if tags and output_format != "wav":
+        audio.export(output_file, format=export_format, tags=dict(tags))
+    else:
+        audio.export(output_file, format=export_format)
     return output_file

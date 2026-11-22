@@ -42,6 +42,10 @@ from workout_audio_coach.routines import (
     get_preset_routine,
     load_routine_file,
 )
+from workout_audio_coach.timeline import (
+    build_estimated_timeline,
+    export_timeline,
+)
 from workout_audio_coach.tts import (
     TTSFactory,
     TTSWriter,
@@ -277,6 +281,17 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write the workout script preview to a text file.",
     )
     parser.add_argument(
+        "--timestamps-file",
+        type=Path,
+        default=None,
+        help="Export timestamped cue sheet (.vtt, .srt, .lrc, or .json).",
+    )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Custom workout title used in preview output and audio metadata tags.",
+    )
+    parser.add_argument(
         "--tts-backend",
         choices=SUPPORTED_TTS_BACKENDS,
         default="gtts",
@@ -340,8 +355,16 @@ def _resolve_routine(args: argparse.Namespace) -> WorkoutRoutine | None:
 
 
 def build_config(args: argparse.Namespace) -> WorkoutConfig:
-    if args.output_file is None and not args.preview and args.script_file is None:
-        raise ValueError("either --output-file or one of --preview/--script-file is required")
+    timestamps_file: Path | None = getattr(args, "timestamps_file", None)
+    if (
+        args.output_file is None
+        and not args.preview
+        and args.script_file is None
+        and timestamps_file is None
+    ):
+        raise ValueError(
+            "either --output-file or one of --preview/--script-file/--timestamps-file is required"
+        )
 
     routine = _resolve_routine(args)
     duration: float | None = getattr(args, "duration", None)
@@ -481,6 +504,8 @@ def build_config(args: argparse.Namespace) -> WorkoutConfig:
         beep_cues=bool(getattr(args, "beep_cues", False)),
         duration=duration,
         routine=routine,
+        timestamps_file=timestamps_file,
+        title=getattr(args, "title", None),
     )
 
 
@@ -490,6 +515,10 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
     maybe_write_script_preview(config, plan)
 
     if config.output_file is None:
+        if config.timestamps_file is not None:
+            estimated = build_estimated_timeline(plan)
+            export_timeline(estimated, config.timestamps_file)
+            LOGGER.info("Estimated timestamps written to %s", config.timestamps_file)
         LOGGER.info("Preview-only run completed without audio export.")
         return None
 
@@ -514,8 +543,20 @@ def create_combined_audio(args: argparse.Namespace | WorkoutConfig) -> Path | No
             config.reps,
             config.output_file,
         )
-    combined_audio = build_workout_audio(config, plan=plan)
-    _audio.export_workout_audio(combined_audio, config.output_file, output_format)
+
+    if config.timestamps_file is not None:
+        combined_audio, timeline = _audio.build_workout_audio_with_timeline(
+            config,
+            plan=plan,
+            segment_loader=load_or_generate_segment,
+        )
+        export_timeline(timeline, config.timestamps_file)
+        LOGGER.info("Exact timestamps written to %s", config.timestamps_file)
+    else:
+        combined_audio = build_workout_audio(config, plan=plan)
+
+    tags = _audio.build_audio_metadata_tags(config)
+    _audio.export_workout_audio(combined_audio, config.output_file, output_format, tags=tags)
     LOGGER.info("Audio file created: %s", config.output_file)
     return config.output_file
 

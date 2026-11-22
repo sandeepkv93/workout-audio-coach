@@ -1,4 +1,8 @@
 from workout_audio_coach._version import __version__
+from workout_audio_coach.audio import (
+    build_audio_metadata_tags,
+    build_workout_audio_with_timeline,
+)
 from workout_audio_coach.cli import (
     build_config,
     build_workout_audio,
@@ -28,6 +32,15 @@ from workout_audio_coach.routines import (
     get_preset_routine,
     load_routine_file,
 )
+from workout_audio_coach.timeline import (
+    SUPPORTED_TIMELINE_FORMATS,
+    ChapterMarker,
+    TimelineEntry,
+    WorkoutTimeline,
+    build_estimated_timeline,
+    export_timeline,
+    format_duration,
+)
 from workout_audio_coach.tts import (
     EspeakBackend,
     GTTSBackend,
@@ -41,8 +54,10 @@ __all__ = [
     "BUILTIN_PRESETS",
     "PRESET_NAMES",
     "SUPPORTED_OUTPUT_FORMATS",
+    "SUPPORTED_TIMELINE_FORMATS",
     "SUPPORTED_TIMING_MODES",
     "SUPPORTED_TTS_BACKENDS",
+    "ChapterMarker",
     "EspeakBackend",
     "ExerciseSpec",
     "GTTSBackend",
@@ -50,18 +65,25 @@ __all__ = [
     "PhrasePack",
     "TTSBackend",
     "TTSBackendName",
+    "TimelineEntry",
     "TimingMode",
     "ToneBackend",
     "WorkoutConfig",
     "WorkoutRoutine",
     "WorkoutStep",
+    "WorkoutTimeline",
     "__version__",
+    "build_audio_metadata_tags",
     "build_config",
+    "build_estimated_timeline",
     "build_workout_audio",
+    "build_workout_audio_with_timeline",
     "build_workout_plan",
     "create_combined_audio",
     "create_parser",
     "create_tts_backend",
+    "export_timeline",
+    "format_duration",
     "format_workout_plan",
     "get_phrase_pack",
     "get_preset_routine",
